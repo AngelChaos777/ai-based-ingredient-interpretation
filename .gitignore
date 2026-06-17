@@ -1,0 +1,31 @@
+# Virtual environment
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+
+# Data and model files
+data/
+models/
+outputs/
+datasets/
+
+# VS Code settings
+.vscode/
+
+# HuggingFace checkpoints
+checkpoints/
+models/
+*.pt
+*.bin
+*.safetensors
+
+# Jupyter outputs
+.ipynb_checkpoints/
