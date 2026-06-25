@@ -29,3 +29,6 @@ models/
 
 # Jupyter outputs
 .ipynb_checkpoints/
+
+#internal
+.internal/
