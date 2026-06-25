@@ -1,4 +1,16 @@
 # Food Label Transparency - Notebooks Requirements
+# Python >= 3.10 (tested on 3.12.13)
+# CUDA >= 12.x recommended for GPU acceleration (MobileBert batch training).
+# CPU-only fallback works but is ~10× slower.
+#
+# Environment compatibility:
+#   - All packages install cleanly on Fedora 44 / Linux x86_64
+#   - torch 2.12 with CUDA 13.0 support (.venv includes +cu130 variant)
+#   - TensorFlow 2.21 TFLite replaces the separate `tflite` pip package
+#     (the standalone tflite PyPI package is NOT required)
+#   - onnx2tf 1.28.8 requires tf_keras as a runtime dep
+#   - Tested on GPU (NVIDIA) and CPU fallback
+#
 # Pinned versions for reproducibility
 
 # Core data processing
@@ -6,7 +18,7 @@ pandas==2.2.2
 numpy==2.0.1
 
 # Machine learning & deep learning
-torch==2.4.1
+torch==2.12.0
 transformers==4.44.0
 scikit-learn==1.5.2
 
@@ -17,7 +29,20 @@ iterative-stratification==0.1.7
 # Image processing & OCR
 Pillow==10.4.0
 pytesseract==0.3.13
-easyocr==1.8.3
+easyocr==1.7.2
+opencv-python==4.10.0.84
+
+# Model export & deployment pipeline (Notebook 09-10)
+#   ONNX: PyTorch → ONNX export
+#   ONNX Script: runtime dep for torch.onnx.export (torch>=2.4)
+#   ONNX Runtime: ONNX model inference & validation + Android deployment
+#     via ONNX Runtime Mobile (no TFLite conversion needed).
+#   TensorFlow: kept for fallback / alternative deployment paths
+#   onnx2tf removed: unused scaffold; Android target uses ONNX Runtime Mobile directly.
+onnx==1.22.0
+onnxscript==0.7.0
+onnxruntime==1.27.0
+tensorflow==2.21.0
 
 # Data storage
 duckdb==1.1.3
@@ -31,5 +56,5 @@ tqdm==4.66.5
 
 # Jupyter environment
 jupyter==1.0.0
-ipython==8.26.1
-ipykernel==6.29.5
+ipython==9.14.1
+ipykernel==7.3.0

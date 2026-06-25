@@ -167,7 +167,9 @@ def plot_confusion_matrices(cm: np.ndarray, class_names: List[str],
         figsize_per_plot: Size of each subplot
     """
     n_classes = len(class_names)
-    fig, axes = plt.subplots(2, 4, figsize=(figsize_per_plot[0]*4, figsize_per_plot[1]*2))
+    n_cols = min(n_classes, 5)
+    n_rows = (n_classes + n_cols - 1) // n_cols  # ceil division
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(figsize_per_plot[0]*n_cols, figsize_per_plot[1]*n_rows))
     axes = axes.ravel()
 
     for i in range(n_classes):

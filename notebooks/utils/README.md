@@ -283,10 +283,16 @@ To extend the allergen database:
 
 The utility modules are designed to work with all notebooks in the project:
 
-- **`notebooks/03_labeling_enhanced.ipynb`** - Enhanced allergen labeling and annotation
-- **`notebooks/04_model_training.ipynb`** - Model training and threshold optimization
-- **`notebooks/05_hybrid.ipynb`** - Hybrid ML + rule-based prediction system
-- **`notebooks/06_ocr_hybrid_pipeline.ipynb`** - OCR-based hybrid processing (deleted, kept for reference)
+- **`notebooks/01_extraction.ipynb`** - Data extraction from OpenFoodFacts API
+- **`notebooks/02_cleaning.ipynb`** - Data cleaning and preprocessing
+- **`notebooks/03_ingredient_parsing.ipynb`** - Ingredient-level token parsing (Deliverable 1)
+- **`notebooks/04_semantic_labeling.ipynb`** - Rule-based semantic ingredient labeling (Deliverable 1)
+- **`notebooks/05_semantic_model.ipynb`** - Semantic classification model training (Deliverable 1)
+- **`notebooks/06_allergen_labeling.ipynb`** - Enhanced allergen labeling and annotation (Deliverable 2)
+- **`notebooks/07_allergen_training.ipynb`** - Allergen model training and threshold optimization (Deliverable 2)
+- **`notebooks/08_hybrid_evaluation.ipynb`** - Hybrid ML + rule-based prediction system (Deliverable 3)
+- **`notebooks/09_model_export.ipynb`** - PyTorch → ONNX → TFLite model export (Deliverable 4)
+- **`notebooks/10_mobile_benchmark.ipynb`** - Mobile latency/size validation (Deliverable 4)
 
 ## Error Handling
 

@@ -38,8 +38,8 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from typing import List, Tuple, Optional, Dict, Any
 import os
 from sklearn.metrics import f1_score
+from .text_processing import rule_match, get_allergen_list
 
-from scipy.special import expit
 
 
 def load_model_and_tokenizer(model_path: str = "../models/mobilebert_allergen_final/"):
@@ -91,12 +91,19 @@ def compute_class_weights(labels: np.ndarray) -> torch.Tensor:
     """
     Compute class weights for imbalanced multi-label classification.
 
+    Accepts both numpy arrays and torch tensors — converts to numpy
+    internally for consistent computation.
+
     Args:
-        labels: Numpy array of binary labels (n_samples, n_classes)
+        labels: Array of binary labels (n_samples, n_classes)
 
     Returns:
         Tensor of class weights normalized to mean=1
     """
+    # Convert torch tensor to numpy for consistent handling
+    if isinstance(labels, torch.Tensor):
+        labels = labels.cpu().numpy()
+
     pos_counts = labels.sum(axis=0)
     neg_counts = len(labels) - pos_counts
     # Avoid division by zero
@@ -140,9 +147,13 @@ def predict_ml(texts: List[str],
                tokenizer: AutoTokenizer,
                device: torch.device,
                thresholds: Optional[np.ndarray] = None,
-               max_length: int = 209) -> Tuple[np.ndarray, np.ndarray]:
+               max_length: int = 209,
+               batch_size: int = 8) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Make predictions using the MobileBERT model.
+    Make predictions using the MobileBERT model with batched inference.
+
+    Processes texts in small batches to avoid GPU OOM on memory-constrained
+    systems (e.g. consumer GPUs with 4-8 GiB VRAM).
 
     Args:
         texts: List of input texts
@@ -151,6 +162,7 @@ def predict_ml(texts: List[str],
         device: Device to run inference on
         thresholds: Optional array of thresholds for each class (default: 0.5 for all)
         max_length: Maximum sequence length for tokenization
+        batch_size: Batch size for inference (default: 8)
 
     Returns:
         Tuple of (predictions, probabilities)
@@ -160,41 +172,35 @@ def predict_ml(texts: List[str],
 
     # Set default thresholds if not provided
     if thresholds is None:
-        thresholds = np.array([0.5] * 8)  # 8 allergens
+        thresholds = np.array([0.5] * len(get_allergen_list()))
 
-    # Tokenize inputs
-    inputs = tokenizer(
-        texts,
-        padding=True,
-        truncation=True,
-        max_length=max_length,
-        return_tensors="pt"
-    )
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    all_probs = []
+    model.eval()
 
-    # Get predictions
-    with torch.no_grad():
-        outputs = model(**inputs)
-        probs = torch.sigmoid(outputs.logits).cpu().numpy()
-        preds = (probs >= thresholds).astype(int)
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i:i + batch_size]
+        inputs = tokenizer(
+            batch_texts,
+            padding=True,
+            truncation=True,
+            max_length=max_length,
+            return_tensors="pt"
+        )
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+            probs = torch.sigmoid(outputs.logits).cpu().numpy()
+            all_probs.append(probs)
+
+        # Clear cached memory periodically to avoid fragmentation
+        if i % 64 == 0 and i > 0 and device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    probs = np.concatenate(all_probs, axis=0)
+    preds = (probs >= thresholds).astype(int)
 
     return preds, probs
-
-
-def rule_match(text: str, allergen: str) -> bool:
-    """
-    Check if allergen is present in text using rule-based matching.
-    Delegates to the comprehensive implementation in text_processing.py.
-
-    Args:
-        text: Input text to search
-        allergen: Allergen to check for
-
-    Returns:
-        True if allergen found and not negated, False otherwise
-    """
-    from .text_processing import rule_match as _tp_rule_match
-    return _tp_rule_match(text, allergen)
 
 
 def hybrid_predict(texts: List[str],
@@ -205,7 +211,8 @@ def hybrid_predict(texts: List[str],
                    rule_conf_threshold: float = 0.2,
                    mode: str = 'hard_override',
                    alpha: float = 0.3,
-                   max_length: int = 209) -> Tuple[np.ndarray, np.ndarray]:
+                   max_length: int = 209,
+                   batch_size: int = 8) -> Tuple[np.ndarray, np.ndarray]:
     """
     Make hybrid predictions combining ML and rule-based approaches.
 
@@ -219,19 +226,21 @@ def hybrid_predict(texts: List[str],
         mode: Hybrid mode ('hard_override', 'soft', 'high_confidence_bypass')
         alpha: Weight for rule-based contribution in 'soft' mode
         max_length: Maximum sequence length for tokenization
+        batch_size: Batch size for ML inference (default: 8)
 
     Returns:
         Tuple of (hybrid_predictions, ml_probabilities)
     """
-    # Get ML predictions and probabilities
-    ml_preds, probs = predict_ml(texts, model, tokenizer, device, thresholds, max_length)
+    # Get ML predictions and probabilities with batched inference
+    ml_preds, probs = predict_ml(texts, model, tokenizer, device, thresholds, max_length, batch_size)
 
     # Initialize hybrid predictions as ML predictions
     hybrid_preds = ml_preds.copy()
 
     # Apply hybrid logic
+    allergen_list = get_allergen_list()
     for i, text in enumerate(texts):
-        for j, allergen in enumerate(["milk", "eggs", "peanuts", "tree_nuts", "soy", "wheat", "fish", "shellfish"]):
+        for j, allergen in enumerate(allergen_list):
             rule_present = rule_match(text, allergen)
 
             if mode == 'hard_override':

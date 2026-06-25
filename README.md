@@ -53,30 +53,53 @@ Each notebook represents a stage in the end-to-end workflow. Run them sequential
 - Addresses missing values and inconsistencies
 - Outputs a cleaned dataset ready for annotation
 
-### 3. Enhanced Labeling (`03_labeling_enhanced.ipynb`)
-- Assigns allergen labels to each ingredient using FDA-defined categories
-- Generates a multi-label training dataset (one-hot encoded per allergen)
-- Includes validation checks for annotation consistency
-- Exports labeled CSV for model training
+### Deliverable 1 — Semantic Classification (Notebooks 03–05)
 
-### 4. Model Training (`04_model_training.ipynb`)
-- Fine-tunes **MobileBERT** (Hugging Face Transformers) for multi-label classification
-- Implements stratified train/validation/test splits to preserve class distribution
+### 3. Ingredient Parsing (`03_ingredient_parsing.ipynb`)
+- Loads cleaned ingredient text from Notebook 02
+- Runs `parse_ingredient_list()` to tokenize each product's ingredient list into individual ingredients
+- Normalizes ingredient names and removes duplicates per product
+- Builds an ingredient-level dataset for semantic classification
+- Exports `parsed_ingredients.csv` for downstream labeling
+
+### 4. Semantic Labeling (`04_semantic_labeling.ipynb`)
+- Applies `ingredient_to_categories()` rule-based classifier from semantic_utils
+- Maps 300+ known ingredients to 41 semantic categories (additives, flavors, macronutrients, etc.)
+- Identifies unknown ingredients for manual annotation
+- Builds a multi-label training matrix (binary vectors per ingredient × category)
+- Exports `semantic_training_data.csv` for model training
+
+### 5. Semantic Model Training (`05_semantic_model.ipynb`)
+- Fine-tunes **MobileBERT** (Hugging Face Transformers) for multi-label semantic classification
+- 41 output categories across 7 groups (additives, flavors, functional, macronutrients, etc.)
+- Implements stratified train/validation/test splits
 - Uses **Weighted Binary Cross-Entropy** loss to mitigate class imbalance
+- Optimizes per-class probability thresholds, saves model and evaluation metrics
+
+### Deliverable 2 — Allergen Detection (Notebooks 06–07)
+
+### 6. Allergen Labeling (`06_allergen_labeling.ipynb`)
+- Assigns allergen labels to each product using FDA-defined BIG8 categories
+- Combines rule-based detection with official OpenFoodFacts allergen tags
+- Processes "may contain" statements, traces tags, and exemption rules
+- Includes Filipino variant detection merged into the BIG8 dictionary
+- Exports `labeled_dataset_enhanced.csv` for model training
+
+### 7. Allergen Model Training (`07_allergen_training.ipynb`)
+- Fine-tunes **MobileBERT** (Hugging Face Transformers) for multi-label allergen classification
+- 8 output classes: Milk, Eggs, Peanuts, Tree Nuts, Soy, Wheat, Fish, Shellfish
+- Uses **Weighted Binary Cross-Entropy** loss to handle class imbalance
 - Optimizes prediction thresholds per allergen via validation set
-- Saves the trained model and training metadata
+- Saves the trained model, tokenizer, and training metadata
 
-### 5. Hybrid Detection (`05_hybrid.ipynb`)
-- Loads the pre-trained MobileBERT model
-- Combines rule-based allergen patterns (e.g., keyword matching) with ML probabilities
-- Produces final allergen confidence scores (0–1) per ingredient
+### Deliverable 3 — Hybrid Detection (Notebook 08)
+
+### 8. Hybrid Evaluation (`08_hybrid_evaluation.ipynb`)
+- Loads the pre-trained MobileBERT allergen model
+- Combines rule-based allergen patterns with ML probabilities using hybrid_config
+- Supports configurable merge modes: `rule_priority`, `ml_priority`, `hard_override`
 - Evaluates hybrid performance on the held‑out test set
-- Exports `model_thresholds.json` for production deployment
-
-### 6. OCR + Hybrid Pipeline (`06_ocr_hybrid_pipeline.ipynb`)
-- End‑to‑end demo: **Image → OCR → Cleaned Ingredients → Hybrid Predictions → Allergen Report**
-- Generates a human‑readable CSV report showing detected allergens per product
-- Includes error analysis (false positives/negatives) and performance metrics (precision, recall, F1)
+- Includes Filipino-aware rule matching merged into `COMPILED_RULES`
 
 ---
 
@@ -114,10 +137,14 @@ jupyter lab   # or jupyter notebook
 Then open:
 1. `01_extraction.ipynb`
 2. `02_cleaning.ipynb`
-3. `03_labeling_enhanced.ipynb`
-4. `04_model_training.ipynb` *(optional if you only want to infer)*
-5. `05_hybrid.ipynb`
-6. `06_ocr_hybrid_pipeline.ipynb`
+3. `03_ingredient_parsing.ipynb` *(Deliverable 1 — Semantic Classification)*
+4. `04_semantic_labeling.ipynb`
+5. `05_semantic_model.ipynb`
+6. `06_allergen_labeling.ipynb` *(Deliverable 2 — Allergen Detection)*
+7. `07_allergen_training.ipynb`
+8. `08_hybrid_evaluation.ipynb` *(Deliverable 3 — Hybrid Detection)*
+9. `09_model_export.ipynb` *(Deliverable 4 — Deployment)*
+10. `10_mobile_benchmark.ipynb`
 
 Each notebook contains executable cells with clear markdown explanations.
 
@@ -128,11 +155,15 @@ Each notebook contains executable cells with clear markdown explanations.
 flowchart TD
     A[Food Label Images] --> B[01 Extraction: OCR + Parsing]
     B --> C[02 Cleaning: Deduplication + Normalization]
-    C --> D[03 Labeling: Allergen Annotation]
-    D --> E[04 Training: MobileBERT Fine‑tuning]
-    E --> F[05 Hybrid: ML + Rule‑Based]
-    F --> G[06 Pipeline: End‑to‑End Allergen Report]
-    G --> H[Allergen Predictions per Product]
+    C --> D[03 Ingredient Parsing: Tokenize → Ingredient-Level Dataset]
+    D --> E[04 Semantic Labeling: Rule-Based Category Mapping]
+    E --> F[05 Semantic Model: MobileBERT Multi-Label Training]
+    F --> G[06 Allergen Labeling: Rule-Based + Official Tags]
+    G --> H[07 Allergen Training: MobileBERT Fine-Tuning]
+    H --> I[08 Hybrid Evaluation: ML + Rule-Based Consensus]
+    I --> J[09 Model Export: PyTorch → ONNX → TFLite]
+    J --> K[10 Mobile Benchmark: Latency + Size Validation]
+    K --> L[Allergen Predictions per Product]
 ```
 
 ---
@@ -147,7 +178,9 @@ flowchart TD
 | `../configs/model_thresholds.json` | Optimal probability thresholds per allergen (alternative location) |
 | `../data/raw/` | OCR outputs and parsed ingredients (CSV/DuckDB) |
 | `../data/clean/` | Cleaned ingredient tables |
-| `../data/labeled/` | Ingredient‑allergen matrix for training |
+| `../data/final/` | Labeled datasets for training (semantic + allergen) |
+| `../data/predictions/` | Final allergen reports (CSV) |
+| `../models/exported/` | ONNX/TFLite exported models |
 | `../data/predictions/` | Final allergen reports (CSV) |
 | `../notebooks/` | Jupyter notebooks for each pipeline stage |
 
@@ -199,7 +232,7 @@ preds, probs = predict_ml(texts, thresholds=thresholds)
 - **Training Time:** ~25 min on a single RTX 3060 (6 GB VRAM)
 - **Inference Latency:** ~12 ms per ingredient on CPU
 
-*Numbers are from the test set evaluation in `04_model_training.ipynb`.*
+*Numbers are from the test set evaluation in `07_allergen_training.ipynb`.*
 
 ---
 
@@ -207,11 +240,11 @@ preds, probs = predict_ml(texts, thresholds=thresholds)
 
 | Issue | Solution |
 |-------|----------|
-| **GPU OOM** | Reduce `batch_size` in `04_model_training.ipynb`; enable `gradient_accumulation_steps`. |
+| **GPU OOM** | Reduce `batch_size` in `07_allergen_training.ipynb`; enable `gradient_accumulation_steps`. |
 | **Slow OCR** | Ensure input images are ≥300 DPI; apply deskewing and contrast adjustment (see OpenCV snippets in the extraction notebook). |
 | **Low Recall for Rare Allergens** | Increase class weight for that allergen in the loss function; collect more labeled examples. |
 | **Module Not Found (e.g., `duckdb`)** | Install via `pip install duckdb`; verify you’re using the correct virtual environment. |
-| **Threshold Tuning** | Adjust thresholds in `05_hybrid.ipynb` → search for `threshold_dict`; optimize using validation precision‑recall curves. |
+| **Threshold Tuning** | Adjust thresholds in `08_hybrid_evaluation.ipynb` → search for `threshold_dict`; optimize using validation precision‑recall curves. |
 
 ---
 
@@ -219,7 +252,10 @@ preds, probs = predict_ml(texts, thresholds=thresholds)
 - **`../models/mobilebert_allergen_final/`** – Trained MobileBERT checkpoint & tokenizer
 - **`../data/predictions/allergen_report.csv`** – Per‑product allergen flags + confidence scores
 - **`../configs/model_thresholds.json`** – Optimal probability thresholds per allergen
-- **`../notebooks/06_ocr_hybrid_pipeline.ipynb`** – End‑to‑end demo with visualizations
+- **`../notebooks/08_hybrid_evaluation.ipynb`** – Hybrid ML + rule‑based evaluation
+- **`../notebooks/09_model_export.ipynb`** – ONNX/TFLite model export
+- **`../notebooks/10_mobile_benchmark.ipynb`** – Mobile deployment validation
+
 ---
 
 ## 📜 License
@@ -227,5 +263,5 @@ This project is licensed under the MIT License – see the [LICENSE](LICENSE) fi
 
 ---
 
-*Last updated: June 20, 2026*  
-*Version: 1.1.0*
+*Last updated: June 25, 2026*  
+*Version: 2.2.0*

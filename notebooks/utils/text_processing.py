@@ -10,7 +10,7 @@ Key Features:
 - HTML tag removal and text cleaning
 - Tokenization and text splitting utilities
 - Label parsing for multiple allergen types
-- Excemption handling for refined products
+- Exemption handling for refined products
 - Rule-based allergen detection with negation handling
 - Utility functions for food label processing
 
@@ -20,35 +20,41 @@ Usage Examples:
     >>> allergens = detect_allergens_rule_based(text)
     >>> cleaned = clean_html("<div>milk - free</div>")
     >>> allergen_list = get_allergen_list()
+"""
 
-# Quick usage guide
 __all__ = [
     # Core allergen functions
-    'detect_allergens_rule_based',
-    'rule_match',
-    'BIG8',
-    'ALLERGEN_RULES',
-    'OFFICIAL_MAP',
+    "detect_allergens_rule_based",
+    "rule_match",
+    "BIG8",
+    "ALLERGEN_RULES",
+    "OFFICIAL_MAP",
+    "COMPILED_RULES",
+    "NEGATION_PATTERN",
 
     # Text processing functions
-    'clean_html',
-    'preprocess_text',
-    'clean_ingredient_text',
-    'tokenize_ingredients',
+    "clean_html",
+    "preprocess_text",
+    "clean_ingredient_text",
+    "tokenize_ingredients",
 
     # Label parsing functions
-    'parse_label_string',
-    'get_allergen_list',
-    'allergens_to_binary',
+    "parse_label_string",
+    "get_allergen_list",
+    "allergens_to_binary",
 
     # Special utilities
-    'extract_may_contain',
-    'has_explicit_allergen_statement',
-    'parse_traces_tags',
-    'parse_official_tags',
-    'apply_exemptions',
+    "extract_may_contain",
+    "has_explicit_allergen_statement",
+    "parse_traces_tags",
+    "parse_official_tags",
+    "apply_exemptions",
+    "combine_allergen_labels",
+    "detect_coconut_improved",
+
+    # Filipino variant data
+    "FILIPINO_VARIANTS",
 ]
-"""
 
 import re
 import ast
@@ -115,6 +121,61 @@ BIG8 = {
         "crab meat", "lobster paste"
     ],
 }
+
+# ──────────────────────────────────────────────
+# Filipino ingredient variants (Thesis Plan Deliverable 3)
+# ──────────────────────────────────────────────
+
+# Common Tagalog/Filipino terms for allergens found in Philippine food labels
+FILIPINO_VARIANTS = {
+    "milk": [
+        "gatas", "gatas na pulbos", "gatas na kondensada",
+        "keso", "kesong puti", "mantikilya", "krema",
+        "milk", "whey", "kasein", "lactose",
+    ],
+    "eggs": [
+        "itlog", "itlog na pula", "puti ng itlog", "buro",
+        "itlog na maalat", "itlog na asin",
+    ],
+    "peanuts": [
+        "mani", "mantika ng mani", "butter ng mani",
+        "peanut", "groundnut", "mankinsilya",
+    ],
+    "tree_nuts": [
+        "kasoy", "almendras", "walnut", "pistachio",
+        "hazelnut", "macadamia", "pecan",
+    ],
+    "soy": [
+        "toyo", "tokwa", "taho", "miso", "bitsin", "patis",
+        "toyo beans", "soy sauce", "tausi", "tausi paste",
+    ],
+    "wheat": [
+        "trigo", "harina", "harinang trigo", "tinapay",
+        "pansit", "bihon", "miki", "canton", "sotanghon",
+        "pasta", "spaghetti", "elbow macaroni",
+        "grano", "semolina", "durum",
+    ],
+    "fish": [
+        "isda", "bagoong", "patis", "dilis", "sardinas",
+        "tuna", "galunggong", "bangus", "tilapia",
+        "tuyo", "daing", "tinapa", "fish sauce",
+    ],
+    "shellfish": [
+        "hipon", "sugpo", "alamang", "bagoong alamang",
+        "alimasag", "talangka", "suso", "tahong",
+        "talaba", "halaan", "kabibe", "lobster",
+        "prawn", "crab", "shrimp", "crayfish",
+    ],
+}
+
+# Merge Filipino variants into the main BIG8 dictionary so COMPILED_RULES
+# and all downstream functions (rule_match, detect_allergens_rule_based)
+# automatically include both English and Filipino terms.
+for _allergen, _variants in FILIPINO_VARIANTS.items():
+    if _allergen in BIG8:
+        for _v in _variants:
+            if _v not in BIG8[_allergen]:
+                BIG8[_allergen].append(_v)
 
 # Alias for backward compatibility
 ALLERGEN_RULES = BIG8
@@ -198,10 +259,11 @@ def rule_match(text: str, allergen: str) -> bool:
                 r'\b(does not contain|free from)\s+' + re.escape(stem) + r'\b',
                 re.IGNORECASE
             )
-            # Pattern 3: allergen stem followed by negation suffix (e.g., "milk-free", "peanut-free")
-            # Handle stem variations by checking if allergen stem + '-' appears
+            # Pattern 3: allergen stem followed by known negation suffix (e.g., "milk-free", "peanut-free")
+            # WARNING: Only match specific negation suffixes to avoid false negatives
+            # on hyphenated compounds like "milk-chocolate", "peanut-butter", "egg-white"
             negation_after = re.compile(
-                r'\b' + re.escape(stem) + r'(?:[a-z]+)?-\w+\b|\b' + re.escape(stem) + r'-\w+\b',
+                r'\b' + re.escape(stem) + r'(?:[a-z]+)?-(?:free|less|absent|avoid|removed|excluded|none)\b',
                 re.IGNORECASE
             )
 
@@ -289,25 +351,35 @@ def tokenize_ingredients(text: str) -> List[str]:
 
 def parse_label_string(label_str: str) -> List[int]:
     """
-    Parse label string representation to list of integers.
+    Parse label string representation to binary indicator vector (length 8).
+
+    Accepts both formats:
+      - "[1, 0, 1]"  — binary notation (legacy)
+      - "['milk', 'wheat']" — allergen name notation
+
+    Delegates to allergens_to_binary for the name-based format.
+    If the literal evaluates to integers, it returns them directly.
 
     Args:
-        label_str: String representation of labels (e.g., "[1, 0, 1]")
+        label_str: String representation of labels
 
     Returns:
-        List of integer labels
+        List of 8 integers (0 or 1) indicating allergen presence
     """
     # Handle NaN/None values and empty lists
     if (label_str is None or
         (isinstance(label_str, float) and np.isnan(label_str)) or
         label_str == "[]"):
-        return [0] * 8  # Assuming 8 allergens
+        return [0] * 8  # Allergen list default — 8 BIG8 allergens
 
     try:
-        labels = ast.literal_eval(label_str)
-        return [1 if label in labels else 0 for label in
-                ["milk", "eggs", "peanuts", "tree_nuts", "soy", "wheat", "fish", "shellfish"]]
-    except:
+        parsed = ast.literal_eval(label_str)
+        # If parsed as list of ints, return directly
+        if parsed and all(isinstance(x, int) for x in parsed):
+            return [int(x) for x in parsed]
+        # Otherwise delegate to name-based conversion
+        return allergens_to_binary(label_str)
+    except Exception:
         return [0] * 8
 
 def get_allergen_list() -> List[str]:

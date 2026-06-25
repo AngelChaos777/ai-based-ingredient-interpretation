@@ -109,25 +109,29 @@ def parse_label_column(df: pd.DataFrame, column_name: str = "detected_allergens"
         DataFrame with added binary columns for each allergen
     """
     if allergen_list is None:
-        allergen_list = ["milk", "eggs", "peanuts", "tree_nuts", "soy", "wheat", "fish", "shellfish"]
+        from .text_processing import get_allergen_list as _gal
+        allergen_list = _gal()
 
     # Make a copy to avoid modifying original
     result_df = df.copy()
 
-    # Parse the label column
-    def safe_parse(x):
+    # Parse the label column safely
+    def _safe_parse_list(x):
+        if isinstance(x, list):
+            return x
         if pd.isna(x) or x == "[]":
             return []
         try:
             return ast.literal_eval(x)
-        except:
+        except Exception:
             return []
+
+    # Pre-parse once to avoid repeated eval calls
+    parsed = result_df[column_name].apply(_safe_parse_list)
 
     # Create binary columns
     for i, allergen in enumerate(allergen_list):
-        result_df[allergen] = result_df[column_name].apply(
-            lambda x: 1 if allergen in safe_parse(x) else 0
-        )
+        result_df[allergen] = parsed.apply(lambda lst: 1 if allergen in lst else 0)
 
     return result_df
 
@@ -153,8 +157,6 @@ def create_stratified_splits(texts: List[str],
     Returns:
         Tuple of (train_texts, val_texts, test_texts, train_labels, val_labels, test_labels)
     """
-    from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
-
     # Validate sizes
     assert abs(train_size + val_size + test_size - 1.0) < 1e-6, "Sizes must sum to 1.0"
 
@@ -211,7 +213,8 @@ def augment_dataframe(df: pd.DataFrame, num_augmented: int = 2,
         DataFrame containing augmented examples (original not included)
     """
     if ALLERGENS is None:
-        ALLERGENS = ["milk", "eggs", "peanuts", "tree_nuts", "soy", "wheat", "fish", "shellfish"]
+        from .text_processing import get_allergen_list as _gal
+        ALLERGENS = _gal()
 
     if SYNONYMS is None:
         SYNONYMS = {
@@ -226,16 +229,8 @@ def augment_dataframe(df: pd.DataFrame, num_augmented: int = 2,
         }
 
     if ALLERGEN_KEYWORDS is None:
-        ALLERGEN_KEYWORDS = {
-            "milk": ["milk", "butter", "cream", "whey", "casein"],
-            "eggs": ["egg", "albumin", "mayonnaise"],
-            "peanuts": ["peanut", "groundnut"],
-            "tree_nuts": ["almond", "cashew", "walnut", "hazelnut", "pecan", "macadamia"],
-            "soy": ["soy", "soya", "tofu", "lecithin"],
-            "wheat": ["wheat", "flour", "gluten", "semolina"],
-            "fish": ["fish", "tuna", "salmon", "anchovy"],
-            "shellfish": ["shrimp", "prawn", "crab", "lobster", "clam", "mussel"]
-        }
+        from .text_processing import BIG8 as _BIG8
+        ALLERGEN_KEYWORDS = {k: v[:5] for k, v in _BIG8.items()}
 
     def synonym_replacement(text: str, p: float = 0.3) -> str:
         tokens = re.split(r'(\W+)', text)
