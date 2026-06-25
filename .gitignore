@@ -31,4 +31,4 @@ models/
 .ipynb_checkpoints/
 
 #internal
-.internal/
+internal/
