@@ -1,0 +1,28 @@
+{
+  "description": "Mapping from OpenFoodFacts allergen tags to internal allergen names",
+  "version": "1.0",
+  "mapping": {
+    "gluten": "wheat",
+    "wheat": "wheat",
+    "milk": "milk",
+    "eggs": "eggs",
+    "soybeans": "soy",
+    "soya": "soy",
+    "peanuts": "peanuts",
+    "tree nuts": "tree_nuts",
+    "nuts": "tree_nuts",
+    "fish": "fish",
+    "shellfish": "shellfish",
+    "tree-nuts": "tree_nuts"
+  },
+  "allergens": [
+    "milk",
+    "eggs",
+    "peanuts",
+    "tree_nuts",
+    "soy",
+    "wheat",
+    "fish",
+    "shellfish"
+  ]
+}
