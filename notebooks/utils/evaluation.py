@@ -376,17 +376,3 @@ __all__ = [
     'jaccard',
     'evaluate_rule_vs_official',
 ]
-
-# Export commonly used evaluation functions
-__all__ = [
-    'print_classification_report',
-    'print_per_class_metrics',
-    'find_best_thresholds',
-    'apply_thresholds',
-    'compute_per_class_metrics',
-    'compute_multilabel_confusion_matrix',
-    'plot_confusion_matrices',
-    'error_analysis',
-    'binary_to_label_list',
-    'jaccard',
-]

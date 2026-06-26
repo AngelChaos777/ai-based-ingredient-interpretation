@@ -1,25 +1,14 @@
 """
-Text processing utilities for food label transparency project.
+Text processing for food label allergen detection.
 
-This module consolidates all text cleaning, allergen rule matching, and
-label parsing logic used across notebooks. It serves as the single source
-of truth — notebooks should import from here rather than redefining logic.
+Centralizes all text cleaning, BIG8 keyword matching, context disambiguation, negation
+handling, exemption logic, and label parsing. Notebooks should import from here
+rather than redefining this logic.
 
-Key Features:
-- Enhanced allergen detection with BIG8 comprehensive database
-- HTML tag removal and text cleaning
-- Tokenization and text splitting utilities
-- Label parsing for multiple allergen types
-- Exemption handling for refined products
-- Rule-based allergen detection with negation handling
-- Utility functions for food label processing
-
-Usage Examples:
+Usage:
     >>> from utils.text_processing import detect_allergens_rule_based, clean_html, get_allergen_list
-    >>> text = "milk, sugar, wheat flour"
-    >>> allergens = detect_allergens_rule_based(text)
+    >>> allergens = detect_allergens_rule_based("milk, sugar, wheat flour")
     >>> cleaned = clean_html("<div>milk - free</div>")
-    >>> allergen_list = get_allergen_list()
 """
 
 __all__ = [
@@ -92,10 +81,25 @@ BIG8 = {
         "monkey nut", "peanut flour", "peanut protein"
     ],
     "tree_nuts": [
-        "almond", "cashew", "walnut", "pecan", "hazelnut", "filbert",
-        "macadamia", "pistachio", "brazil nut", "chestnut",
-        "pine nut", "marzipan", "praline",
-        "nut paste", "nut butter", "nut meal", "nut oil"
+        "almond", "almonds", "cashew", "cashews",       # +plurals
+        "walnut", "walnuts", "pecan", "pecans",
+        "hazelnut", "hazelnuts", "filbert",
+        "macadamia", "macadamias", "pistachio", "pistachios",
+        "brazil nut", "brazil nuts",                    # +plural
+        "chestnut", "chestnuts",                         # +plural
+        "pine nut", "pine nuts", "marzipan", "praline",
+        "nut paste", "nut butter", "nut meal", "nut oil",
+        "nuts",                                          # generic (doughnuts/peanuts exempted by \b)
+        "tree nuts", "tree nut",                         # explicit phrase in allergen warnings
+        "pili nut", "pili nuts",                    # Canarium ovatum — native Philippine nut
+        "ginkgo nut", "ginkgo nuts",                # Ginkgo biloba — Asian cuisine
+        "kola nut", "kola nuts",                    # Cola acuminata — tree nut, not just flavor
+        "hickory nut", "hickory nuts",              # Carya genus
+        "beechnut", "beechnuts",                    # Fagus genus
+        "butternut", "butternuts",                  # Juglans cinerea
+        # NOTE: "nutmeg" is EXCLUDED — FDA/FARE state nutmeg is NOT a tree nut allergen
+        "nut flour",                                # common processed form
+        "mixed nuts", "assorted nuts",
     ],
     "soy": [
         "soy", "soya", "soybean", "soybeans", "edamame", "natto",
@@ -182,12 +186,10 @@ AMBIGUOUS_KEYWORDS = {
     },
 }
 
-# ──────────────────────────────────────────────
-# Rough guide: per-keyword specificity
-# ──────────────────────────────────────────────
-# milk/cream: often plant-based → disallow when preceded by non-dairy sources
-# soy/lecithin: sunflower lecithin is common → require "soy" prefix
-# wheat/flour: rice flour, corn flour, etc. → require "wheat" prefix
+# Per-keyword specificity rules:
+#   milk/cream — often plant-based; disallow when preceded by non-dairy modifiers
+#   soy/lecithin — sunflower lecithin is common; require "soy" prefix
+#   wheat/flour — rice flour, corn flour, etc.; require "wheat" prefix
 
 # ──────────────────────────────────────────────
 # Filipino ingredient variants (Thesis Plan Deliverable 3)
@@ -211,6 +213,8 @@ FILIPINO_VARIANTS = {
     "tree_nuts": [
         "kasoy", "almendras", "walnut", "pistachio",
         "hazelnut", "macadamia", "pecan",
+        "pili", "pili nuts",                       # Canarium ovatum
+        "ginkgo", "ginkgo nut",                     # Added local name
     ],
     "soy": [
         "toyo", "tokwa", "taho", "miso", "bitsin", "patis",
@@ -460,6 +464,12 @@ def rule_match(text: str, allergen: str) -> bool:
 
     text_lower = text.lower()
 
+    # Strip underscores -- they break \b word boundary matching because
+    # underscore (_) is a "word character" in regex. Ingredient lists
+    # sometimes use underscores for emphasis (e.g., _almond_), which
+    # prevents \b from matching across the word boundary.
+    text_lower = text_lower.replace('_', ' ')
+
     # Step 1: Check core BIG8 keyword match
     # Find all matching keywords for this allergen
     match = COMPILED_RULES[allergen].search(text_lower)
@@ -592,31 +602,38 @@ def get_allergen_list() -> List[str]:
     return ["milk", "eggs", "peanuts", "tree_nuts", "soy", "wheat", "fish", "shellfish"]
 
 
-def allergens_to_binary(allergen_list_str: str) -> List[int]:
+def allergens_to_binary(allergen_list_str) -> List[int]:
     """
-    Convert a string representation of a list of allergen names to binary vector.
+    Convert a list or string representation of allergen names to binary vector.
+
+    Accepts both a string representation (e.g., "['milk', 'wheat']") and a
+    direct Python list (e.g., ['milk', 'wheat']) for convenience.
 
     Args:
-        allergen_list_str: String representation of a list of allergen names (e.g., "['milk', 'wheat']")
+        allergen_list_str: List of allergen names, or string representation
 
     Returns:
         Binary vector indicating presence of each allergen
     """
-    # Parse the string to a Python list
-    try:
-        allergen_list = ast.literal_eval(allergen_list_str)
-    except:
+    # Accept both string representations and direct lists
+    if isinstance(allergen_list_str, str):
+        try:
+            allergen_list = ast.literal_eval(allergen_list_str)
+        except:
+            allergen_list = []
+    elif isinstance(allergen_list_str, (list, tuple)):
+        allergen_list = list(allergen_list_str)
+    else:
         allergen_list = []
-    # Get the ordered allergen list
     ordered_allergens = get_allergen_list()
-    # Initialize binary vector
     binary = [0] * len(ordered_allergens)
-    # Set to 1 if allergen is present
     for allergen in allergen_list:
         if allergen in ordered_allergens:
             idx = ordered_allergens.index(allergen)
             binary[idx] = 1
     return binary
+
+
 def extract_may_contain(text):
     """
     Extract allergens mentioned in "may contain" statements.
@@ -808,11 +825,35 @@ def apply_exemptions(detected_list, tokens):
     for allergen, config in exempt_config.items():
         if allergen not in detected_set:
             continue
-        exempt_match = any(re.search(pat, text) for pat in config["patterns"])
-        if not exempt_match:
+
+        # Collect all exemption match spans so we can detect over-matching
+        # by keep_if_also patterns that happen to match inside exemption text
+        # (e.g. \bchestnut\b inside "water chestnut", \bnut butter\b inside "shea nut butter")
+        exempt_spans = set()
+        exempt_found = False
+        for pat in config["patterns"]:
+            for m in re.finditer(pat, text):
+                exempt_found = True
+                for pos in range(m.start(), m.end()):
+                    exempt_spans.add(pos)
+        if not exempt_found:
             continue
-        keep_match = any(re.search(pat, text) for pat in config.get("keep_if_also", []))
-        if exempt_match and not keep_match:
+
+        # A keep_if_also match only counts if it falls OUTSIDE all exemption spans.
+        # This prevents "water chestnut" from being re-classified as tree_nuts
+        # via the \bchestnut\b keep_if_also pattern matching within the exempt phrase.
+        keep_match = False
+        for pat in config.get("keep_if_also", []):
+            for m in re.finditer(pat, text):
+                # Check if this match overlaps with any exemption span
+                overlap = any(pos in exempt_spans for pos in range(m.start(), m.end()))
+                if not overlap:
+                    keep_match = True
+                    break
+            if keep_match:
+                break
+
+        if exempt_found and not keep_match:
             detected_set.discard(allergen)
 
     return list(detected_set)

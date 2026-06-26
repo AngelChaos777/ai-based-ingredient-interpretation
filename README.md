@@ -126,7 +126,7 @@ pip install -r requirements.txt
 ```
 > **Tip:** If you don’t have a `requirements.txt`, run:
 > ```bash
-> pip install torch transformers pandas numpy scikit-learn pillow pytesseract duckdb
+> pip install torch transformers pandas numpy scikit-learn pillow pytesseract duckdb onnx onnxruntime tensorflow scipy matplotlib tqdm jupyter
 > ```
 
 ### Running the Notebooks
@@ -161,7 +161,7 @@ flowchart TD
     F --> G[06 Allergen Labeling: Rule-Based + Official Tags]
     G --> H[07 Allergen Training: MobileBERT Fine-Tuning]
     H --> I[08 Hybrid Evaluation: ML + Rule-Based Consensus]
-    I --> J[09 Model Export: PyTorch → ONNX → TFLite]
+    I --> J[09 Model Export: PyTorch → ONNX → ONNX Runtime Mobile]
     J --> K[10 Mobile Benchmark: Latency + Size Validation]
     K --> L[Allergen Predictions per Product]
 ```
@@ -173,16 +173,18 @@ flowchart TD
 ### Key Directories
 | Path | Description |
 |------|-------------|
-| `../models/mobilebert_allergen_final/` | Stores the fine‑tuned MobileBERT weights and tokenizer |
-| `../models/hybrid_config.json` | Hybrid configuration with ML thresholds and rule parameters |
-| `../configs/model_thresholds.json` | Optimal probability thresholds per allergen (alternative location) |
-| `../data/raw/` | OCR outputs and parsed ingredients (CSV/DuckDB) |
-| `../data/clean/` | Cleaned ingredient tables |
-| `../data/final/` | Labeled datasets for training (semantic + allergen) |
-| `../data/predictions/` | Final allergen reports (CSV) |
-| `../models/exported/` | ONNX/TFLite exported models |
-| `../data/predictions/` | Final allergen reports (CSV) |
-| `../notebooks/` | Jupyter notebooks for each pipeline stage |
+| `notebooks/` | Jupyter notebooks for each pipeline stage (run from this directory) |
+| `notebooks/utils/` | Python utility modules (text_processing, semantic_utils, model_utils, etc.) |
+| `data/raw/` | Raw data source — OpenFoodFacts parquet dump |
+| `data/processed/` | Cleaned, deduplicated product-level dataset |
+| `data/interim/` | Intermediate pipeline outputs (extracted, parsed, vocabulary) |
+| `data/final/` | Labeled datasets for training (semantic + allergen) |
+| `models/mobilebert_allergen_final/` | Fine‑tuned MobileBERT allergen classifier weights & tokenizer |
+| `models/mobilebert_semantic_final/` | Fine‑tuned MobileBERT semantic classifier weights & tokenizer |
+| `models/exported/` | ONNX exported deployment models |
+| `models/hybrid_config.json` | Hybrid ML + rule thresholds and parameters |
+| `configs/` | JSON configuration (allergen map, semantic categories, model thresholds) |
+| `scripts/` | Pipeline orchestration and validation scripts |
 
 ### Allergen Classes
 1. Milk  
@@ -249,12 +251,12 @@ preds, probs = predict_ml(texts, thresholds=thresholds)
 ---
 
 ## 📦 Key Outputs
-- **`../models/mobilebert_allergen_final/`** – Trained MobileBERT checkpoint & tokenizer
-- **`../data/predictions/allergen_report.csv`** – Per‑product allergen flags + confidence scores
-- **`../configs/model_thresholds.json`** – Optimal probability thresholds per allergen
-- **`../notebooks/08_hybrid_evaluation.ipynb`** – Hybrid ML + rule‑based evaluation
-- **`../notebooks/09_model_export.ipynb`** – ONNX/TFLite model export
-- **`../notebooks/10_mobile_benchmark.ipynb`** – Mobile deployment validation
+
+- **`models/mobilebert_allergen_final/`** – Trained MobileBERT checkpoint & tokenizer
+- **`models/mobilebert_semantic_final/`** – Trained MobileBERT semantic classifier & tokenizer
+- **`models/exported/allergen_model/allergen_model.onnx`** – ONNX-exported model for mobile deployment
+- **`configs/model_thresholds.json`** – Optimal probability thresholds per allergen
+- **`configs/allergen_map.json`** – Allergen keyword mappings with Filipino variants
 
 ---
 
@@ -263,5 +265,5 @@ This project is licensed under the MIT License – see the [LICENSE](LICENSE) fi
 
 ---
 
-*Last updated: June 25, 2026*  
-*Version: 2.2.0*
+*Last updated: June 26, 2026*  
+*Version: 2.3.0*

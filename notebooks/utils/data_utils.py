@@ -1,24 +1,14 @@
 """
-Data utilities for food label transparency project.
+Data loading, preprocessing, and multi-label stratification utilities.
 
-This module provides data loading, preprocessing, and split utilities for the food label transparency project.
-It includes functions for loading CSV datasets, creating stratified splits for multi-label classification,
-and augmenting datasets to handle class imbalance.
+Provides CSV loading, multi-label stratified train/val/test splits, dataset
+augmentation (synonym replacement, negative examples), label-to-binary conversion,
+and metadata persistence.
 
-Key Features:
-- Load various dataset formats from standard data directories
-- Create stratified train/val/test splits for multi-label data
-- Augment datasets with synonym replacement and negative examples
-- Convert label lists to binary indicator matrices
-- Safe parsing of label strings with error handling
-- Metadata management for models and configurations
-
-Usage Examples:
-    >>> from utils.data_utils import load_labeled_data, create_stratified_splits, augment_dataframe
+Usage:
     >>> df = load_labeled_data("../data/final/labeled_dataset_enhanced.csv")
-    >>> train_texts, val_texts, test_texts, train_labels, val_labels, test_labels = create_stratified_splits(
-    ...     texts, labels, train_size=0.7, val_size=0.15, test_size=0.15
-    ... )
+    >>> train_texts, val_texts, test_texts, train_labels, val_labels, test_labels = \
+    ...     create_stratified_splits(texts, labels, train_size=0.7, val_size=0.15, test_size=0.15)
     >>> augmented_df = augment_dataframe(train_df, num_augmented=2)
 """
 
@@ -51,6 +41,67 @@ from typing import List, Tuple, Dict, Any, Optional
 import json
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 
+# ──────────────────────────────────────────────
+# Module-level shared helpers
+# ──────────────────────────────────────────────
+
+_DEFAULT_SYNONYMS: Dict[str, List[str]] = {
+    "milk": ["cow's milk", "dairy milk", "whole milk", "low-fat milk"],
+    "eggs": ["hen's eggs", "whole eggs", "egg product",
+             "egg white powder", "dried egg", "egg solids", "pasteurized eggs"],
+    "peanuts": ["groundnuts", "peanut kernels",
+                "monkey nuts", "peanut flour", "peanut protein"],
+    "tree_nuts": ["almonds", "cashews", "walnuts", "hazelnuts", "pecans",
+                  "pistachio", "macadamia", "pine nuts", "brazil nuts",
+                  "chestnuts", "marzipan", "praline",
+                  "pili nuts", "ginkgo nuts", "kola nuts", "hickory nuts",
+                  "mixed nuts", "nut pieces", "crushed nuts", "chopped nuts",
+                  "nut kernels", "tree nut flour"],
+    "soy": ["soya", "soybean", "edamame",
+            "soy protein isolate", "soy flour", "soy milk"],
+    "wheat": ["whole wheat", "wheat grain",
+              "wheat germ", "wheat starch", "triticale"],
+    "fish": ["fish meat", "white fish",
+             "tuna", "salmon", "sardine", "anchovy", "mackerel",
+             "cod", "pollock", "trout", "surimi", "roe", "tuna flakes"],
+    "shellfish": ["shrimp", "prawn", "crab", "lobster",
+                  "crayfish", "krill", "clam", "mussel", "oyster",
+                  "scallop", "squid", "crawfish", "abalone", "conch", "cockle"]
+}
+
+
+def _synonym_replacement(text: str, synonyms: Dict[str, List[str]], p: float = 0.3) -> str:
+    """Replace tokens with synonyms with probability *p*.
+
+    Operates on whitespace/punctuation-delimited tokens.  If the cleaned
+    token exists as a key in *synonyms* the replacement is sampled uniformly
+    from the associated list; otherwise the token is kept as-is.
+    """
+    tokens = re.split(r'(\W+)', text)
+    new_tokens = []
+    for t in tokens:
+        t_lower = t.strip().lower()
+        if t_lower in synonyms and np.random.random() < p:
+            new_tokens.append(np.random.choice(synonyms[t_lower]))
+        else:
+            new_tokens.append(t)
+    return ''.join(new_tokens)
+
+
+def _remove_keywords(text: str, keywords: List[str]) -> str:
+    """Remove all occurrences of *keywords* from *text* via case-insensitive
+    word-boundary matching, then clean up dangling commas."""
+    pattern = r'\b(?:' + '|'.join(re.escape(kw) for kw in keywords) + r')\b'
+    cleaned = re.sub(pattern, '', text, flags=re.IGNORECASE)
+    cleaned = re.sub(r',\s*,', ',', cleaned)
+    cleaned = re.sub(r'^\s*,\s*', '', cleaned)
+    cleaned = re.sub(r'\s*,\s*$', '', cleaned)
+    return cleaned.strip()
+
+
+# ──────────────────────────────────────────────
+# Public API
+# ──────────────────────────────────────────────
 
 def load_extracted_data(filepath: str = "../data/interim/extracted_raw.csv") -> pd.DataFrame:
     """
@@ -207,6 +258,9 @@ def augment_dataframe(df: pd.DataFrame, num_augmented: int = 2,
     """
     Augment dataframe with synonym replacement and negative examples.
 
+    Uses the shared helpers _synonym_replacement and _remove_keywords defined
+    at module level — see those docstrings for internal logic.
+
     Args:
         df: Input DataFrame with 'text' and 'labels' columns
         num_augmented: Number of augmented examples to create per original example
@@ -222,49 +276,11 @@ def augment_dataframe(df: pd.DataFrame, num_augmented: int = 2,
         ALLERGENS = _gal()
 
     if SYNONYMS is None:
-        SYNONYMS = {
-            "milk": ["cow's milk", "dairy milk", "whole milk", "low-fat milk"],
-            "eggs": ["hen's eggs", "whole eggs", "egg product",
-                     "egg white powder", "dried egg", "egg solids", "pasteurized eggs"],
-            "peanuts": ["groundnuts", "peanut kernels",
-                        "monkey nuts", "peanut flour", "peanut protein"],
-            "tree_nuts": ["almonds", "cashews", "walnuts", "hazelnuts", "pecans",
-                          "pistachio", "macadamia", "pine nuts", "brazil nuts",
-                          "chestnuts", "marzipan", "praline"],
-            "soy": ["soya", "soybean", "edamame",
-                    "soy protein isolate", "soy flour", "soy milk"],
-            "wheat": ["whole wheat", "wheat grain",
-                      "wheat germ", "wheat starch", "triticale"],
-            "fish": ["fish meat", "white fish",
-                     "tuna", "salmon", "sardine", "anchovy", "mackerel",
-                     "cod", "pollock", "trout", "surimi", "roe", "tuna flakes"],
-            "shellfish": ["shrimp", "prawn", "crab", "lobster",
-                          "crayfish", "krill", "clam", "mussel", "oyster",
-                          "scallop", "squid", "crawfish", "abalone", "conch", "cockle"]
-        }
+        SYNONYMS = _DEFAULT_SYNONYMS
 
     if ALLERGEN_KEYWORDS is None:
         from .text_processing import BIG8 as _BIG8
         ALLERGEN_KEYWORDS = {k: v[:5] for k, v in _BIG8.items()}
-
-    def synonym_replacement(text: str, p: float = 0.3) -> str:
-        tokens = re.split(r'(\W+)', text)
-        new_tokens = []
-        for t in tokens:
-            t_lower = t.strip().lower()
-            if t_lower in SYNONYMS and np.random.random() < p:
-                new_tokens.append(np.random.choice(SYNONYMS[t_lower]))
-            else:
-                new_tokens.append(t)
-        return ''.join(new_tokens)
-
-    def remove_keywords(text: str, keywords: List[str]) -> str:
-        pattern = r'\b(?:' + '|'.join(re.escape(kw) for kw in keywords) + r')\b'
-        cleaned = re.sub(pattern, '', text, flags=re.IGNORECASE)
-        cleaned = re.sub(r',\s*,', ',', cleaned)
-        cleaned = re.sub(r'^\s*,\s*', '', cleaned)
-        cleaned = re.sub(r'\s*,\s*$', '', cleaned)
-        return cleaned.strip()
 
     def create_negative_example(text: str, label_vector: List[int]) -> Optional[Tuple[str, List[int]]]:
         present = [ALLERGENS[i] for i, v in enumerate(label_vector) if v == 1]
@@ -272,7 +288,7 @@ def augment_dataframe(df: pd.DataFrame, num_augmented: int = 2,
             return None
         chosen_idx = np.random.choice([i for i, v in enumerate(label_vector) if v == 1])
         chosen = ALLERGENS[chosen_idx]
-        new_text = remove_keywords(text, ALLERGEN_KEYWORDS[chosen])
+        new_text = _remove_keywords(text, ALLERGEN_KEYWORDS[chosen])
         if not new_text:
             return None
         new_labels = label_vector.copy()
@@ -284,7 +300,7 @@ def augment_dataframe(df: pd.DataFrame, num_augmented: int = 2,
         for _ in range(num_augmented):
             method = np.random.choice(['synonym', 'negative'])
             if method == 'synonym':
-                new_text = synonym_replacement(row['text'])
+                new_text = _synonym_replacement(row['text'], SYNONYMS)
                 new_labels = row['labels']
             else:  # negative
                 result = create_negative_example(row['text'], row['labels'])
@@ -332,26 +348,7 @@ def augment_targeted(
         ALLERGENS = _gal()
 
     if SYNONYMS is None:
-        SYNONYMS = {
-            "milk": ["cow's milk", "dairy milk", "whole milk", "low-fat milk"],
-            "eggs": ["hen's eggs", "whole eggs", "egg product",
-                     "egg white powder", "dried egg", "egg solids", "pasteurized eggs"],
-            "peanuts": ["groundnuts", "peanut kernels",
-                        "monkey nuts", "peanut flour", "peanut protein"],
-            "tree_nuts": ["almonds", "cashews", "walnuts", "hazelnuts", "pecans",
-                          "pistachio", "macadamia", "pine nuts", "brazil nuts",
-                          "chestnuts", "marzipan", "praline"],
-            "soy": ["soya", "soybean", "edamame",
-                    "soy protein isolate", "soy flour", "soy milk"],
-            "wheat": ["whole wheat", "wheat grain",
-                      "wheat germ", "wheat starch", "triticale"],
-            "fish": ["fish meat", "white fish",
-                     "tuna", "salmon", "sardine", "anchovy", "mackerel",
-                     "cod", "pollock", "trout", "surimi", "roe", "tuna flakes"],
-            "shellfish": ["shrimp", "prawn", "crab", "lobster",
-                          "crayfish", "krill", "clam", "mussel", "oyster",
-                          "scallop", "squid", "crawfish", "abalone", "conch", "cockle"]
-        }
+        SYNONYMS = _DEFAULT_SYNONYMS
 
     if ALLERGEN_KEYWORDS is None:
         from .text_processing import BIG8 as _BIG8
@@ -361,17 +358,6 @@ def augment_targeted(
 
     # Determine which column holds the text
     text_col = 'text' if 'text' in df.columns else 'ingredients_cleaned'
-
-    def synonym_replacement(text: str, p: float = 0.3) -> str:
-        tokens = re.split(r'(\W+)', text)
-        new_tokens = []
-        for t in tokens:
-            t_lower = t.strip().lower()
-            if t_lower in SYNONYMS and np.random.random() < p:
-                new_tokens.append(np.random.choice(SYNONYMS[t_lower]))
-            else:
-                new_tokens.append(t)
-        return ''.join(new_tokens)
 
     augmented_rows = []
     for allergen, multiplier in target_allergens.items():
@@ -386,7 +372,7 @@ def augment_targeted(
         num_copies = max(1, int(multiplier))
         for _, row in target_rows.iterrows():
             for _ in range(num_copies):
-                new_text = synonym_replacement(row[text_col])
+                new_text = _synonym_replacement(row[text_col], SYNONYMS)
                 augmented_rows.append({
                     text_col: new_text,
                     'ingredients_cleaned': new_text,

@@ -608,11 +608,8 @@ def parse_ingredient_list(ingredient_text: str) -> List[str]:
 
 
 def _compile_patterns():
-    """Build efficient lookup patterns from the ingredient map.
-
-    NOTE: Currently unused — ingredient_to_categories() uses dict lookup
-    plus substring matching. Kept as a performance stub for when the
-    mapping grows large enough to warrant regex-based lookup.
+    """Stub: pre-compile regex patterns from the ingredient map for bulk matching.
+    Currently unused — dict + substring matching suffices for the current map size.
     """
     pass
 

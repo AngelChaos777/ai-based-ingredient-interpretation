@@ -1,33 +1,15 @@
 """
-Model utilities for food label transparency project.
+Model loading, predictions, and hybrid inference for MobileBERT allergen classifiers.
 
-This module provides essential utilities for loading, training, and evaluating
-MobileBERT models for multi-label allergen classification. It includes
-functions for loading models and tokenizers, computing class weights for
-imbalanced datasets, generating predictions, and supporting hybrid inference
-methods that combine rule-based and ML approaches.
+Provides model/tokenizer loading with automatic device placement, class weight
+computation for imbalanced multi-label data, ML prediction with configurable
+thresholds, hybrid (ML + rule-based) inference, and optimal threshold search.
 
-Key Features:
-- Load pre-trained MobileBERT models and tokenizers with device management
-- Compute class weights to handle class imbalance in multi-label tasks
-- Generate predictions with configurable thresholds
-- Support hybrid inference combining ML and rule-based methods
-- Find optimal classification thresholds to maximize F1 score
-
-Usage Examples:
-    >>> from utils.model_utils import (
-    ...     load_model_and_tokenizer,
-    ...     compute_class_weights,
-    ...     predict_ml,
-    ...     hybrid_predict
-    ... )
-    >>> # Load model and tokenizer
+Usage:
     >>> model, tokenizer, device = load_model_and_tokenizer("../models/mobilebert_allergen_final/")
-    >>> # Compute class weights for imbalanced data
     >>> weights = compute_class_weights(train_labels)
-    >>> # Generate ML predictions
     >>> predictions, probabilities = predict_ml(texts, model, tokenizer, device)
-    >>> # Generate hybrid predictions
+    >>> hybrid = hybrid_predict(texts, model, tokenizer, device, thresholds)
     >>> hybrid_preds = hybrid_predict(texts, model, tokenizer, device)
 """
 
@@ -89,25 +71,20 @@ def load_hybrid_config(config_path: str = "../models/hybrid_config.json") -> Dic
 
 def compute_class_weights(labels: np.ndarray, max_weight: float = 10.0) -> torch.Tensor:
     """
-    Compute class weights for imbalanced multi-label classification.
+    Compute inverse-frequency class weights for imbalanced multi-label data.
 
-    Uses inverse-frequency weighting with log1p smoothing.
-    Weights are normalized to mean=1 and capped to prevent extreme values
-    that can cause training instability (loss explosion in epoch 1).
-
-    Accepts both numpy arrays and torch tensors — converts to numpy
-    internally for consistent computation.
+    Uses log1p smoothing, normalizes weights to mean=1, and caps extreme values
+    to prevent training instability. Accepts numpy arrays or torch tensors.
 
     Args:
-        labels: Array of binary labels (n_samples, n_classes)
-        max_weight: Cap class weights at this value (default: 10.0).
-                    Set to None to disable capping.
+        labels: Binary labels (n_samples, n_classes).
+        max_weight: Cap (default 10.0). None disables capping.
 
     Returns:
-        Tensor of class weights normalized to mean=1
+        Tensor of class weights normalized to mean=1.
 
     Raises:
-        ValueError: If labels contain NaN or Inf values, or if labels is empty
+        ValueError: If labels contain NaN/Inf or are empty.
     """
     # Convert torch tensor to numpy for consistent handling
     if isinstance(labels, torch.Tensor):
@@ -255,9 +232,19 @@ def hybrid_predict(texts: List[str],
                    mode: str = 'hard_override',
                    alpha: float = 0.3,
                    max_length: int = 209,
-                   batch_size: int = 8) -> Tuple[np.ndarray, np.ndarray]:
+                   batch_size: int = 8,
+                   per_allergen_modes: Optional[Dict[str, str]] = None) -> Tuple[np.ndarray, np.ndarray]:
     """
     Make hybrid predictions combining ML and rule-based approaches.
+
+    Supports per-allergen hybrid strategies via *per_allergen_modes*.
+    Available modes for each allergen:
+
+    - ``None`` (default): uses the global *mode*.
+    - ``'rule_priority'``: if the rule engine detects the allergen, set
+      prediction to 1 regardless of ML probability.  Designed for rare
+      allergens (e.g. tree nuts) where ML sigmoid outputs rarely exceed
+      *rule_conf_threshold*.
 
     Args:
         texts: List of input texts
@@ -266,10 +253,13 @@ def hybrid_predict(texts: List[str],
         device: Device to run inference on
         thresholds: Optional array of thresholds for each class (default: 0.5 for all)
         rule_conf_threshold: Confidence threshold for rule-based override
-        mode: Hybrid mode ('hard_override', 'soft', 'high_confidence_bypass')
+        mode: Global hybrid mode ('hard_override', 'soft', 'high_confidence_bypass')
         alpha: Weight for rule-based contribution in 'soft' mode
         max_length: Maximum sequence length for tokenization
         batch_size: Batch size for ML inference (default: 8)
+        per_allergen_modes: Per-allergen override modes, e.g.
+            ``{"tree_nuts": "rule_priority"}``.  Allergens not listed
+            fall back to the global *mode*.
 
     Returns:
         Tuple of (hybrid_predictions, ml_probabilities)
@@ -286,13 +276,20 @@ def hybrid_predict(texts: List[str],
         for j, allergen in enumerate(allergen_list):
             rule_present = rule_match(text, allergen)
 
-            if mode == 'hard_override':
+            # Resolve effective mode for this allergen
+            effective_mode = (per_allergen_modes or {}).get(allergen, mode)
+
+            if effective_mode == 'rule_priority':
+                # Rule overrides ML entirely — designed for rare classes
+                if rule_present:
+                    hybrid_preds[i][j] = 1
+            elif effective_mode == 'hard_override':
                 if rule_present and probs[i][j] > rule_conf_threshold:
                     hybrid_preds[i][j] = 1
-            elif mode == 'soft':
+            elif effective_mode == 'soft':
                 final_prob = probs[i][j] + alpha * (1 if rule_present else 0)
                 hybrid_preds[i][j] = 1 if final_prob > 0.5 else 0
-            elif mode == 'high_confidence_bypass':
+            elif effective_mode == 'high_confidence_bypass':
                 if rule_present and probs[i][j] > rule_conf_threshold and probs[i][j] < 0.9:
                     hybrid_preds[i][j] = 1
 

@@ -1,1 +1,13 @@
-{"milk": 0.4851515151515151, "eggs": 0.207979797979798, "peanuts": 0.18818181818181817, "tree_nuts": 0.06939393939393938, "soy": 0.702929292929293, "wheat": 0.5544444444444444, "fish": 0.01, "shellfish": 0.29707070707070704}
+{
+  "__note__": "⚠️ STALE — this file is from early experiments and is NOT used in production.",
+  "__production_config__": "models/hybrid_config.json contains the actual optimized thresholds from the trained model.",
+  "__history__": "These values were from an early notebook run before the full training pipeline was established. They have been superseded by validation-set-optimized thresholds in models/hybrid_config.json.",
+  "milk": 0.4851515151515151,
+  "eggs": 0.207979797979798,
+  "peanuts": 0.18818181818181817,
+  "tree_nuts": 0.06939393939393938,
+  "soy": 0.702929292929293,
+  "wheat": 0.5544444444444444,
+  "fish": 0.01,
+  "shellfish": 0.29707070707070704
+}
