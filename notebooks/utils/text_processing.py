@@ -66,14 +66,20 @@ import numpy as np
 # ──────────────────────────────────────────────
 
 # Expanded allergen keywords (consolidated from notebooks 03's BIG8 + original ALLERGEN_RULES)
+# DESIGN NOTE: Broad/ambiguous keywords (standalone "cream", "flour", "lecithin") have been
+# removed from BIG8 to reduce false positives. They are handled by CONTEXTUAL_KEYWORDS below
+# with disambiguation rules. The ML model can learn to catch cases the rule-based system misses.
 BIG8 = {
     "milk": [
         "milk", "whey", "casein", "caseinate", "butter", "cheese",
-        "lactose", "cream", "ghee", "buttermilk", "milk solids", "skim milk",
+        "lactose", "ghee", "buttermilk", "milk solids", "skim milk",
         "whole milk", "milk powder", "nonfat milk", "evaporated milk",
-        "condensed milk", "powdered milk", "curds", "yogurt",
-        "kefir", "lactalbumin", "lactoglobulin", "butterfat", "custard",
-        "whey protein"
+        "condensed milk", "powdered milk", "curds",
+        "lactalbumin", "lactoglobulin", "butterfat",
+        "whey protein",
+        # "cream" is broad (can be non-dairy), but context-aware matching
+        # filters false positives like "coconut cream", "almond cream"
+        "cream",
     ],
     "eggs": [
         "egg", "eggs", "albumin", "egg white", "egg yolk",
@@ -89,38 +95,99 @@ BIG8 = {
         "almond", "cashew", "walnut", "pecan", "hazelnut", "filbert",
         "macadamia", "pistachio", "brazil nut", "chestnut",
         "pine nut", "marzipan", "praline",
-        "nut paste", "nut butter", "nut meal", "nut oil", "shea nut"
+        "nut paste", "nut butter", "nut meal", "nut oil"
     ],
     "soy": [
         "soy", "soya", "soybean", "soybeans", "edamame", "natto",
-        "soy lecithin", "lecithin",
+        "soy lecithin",
         "soy protein", "textured vegetable protein",
         "tvp", "tofu", "miso", "tempeh",
         "soy sauce", "tamari", "soy milk", "soybean oil", "soy flour"
     ],
     "wheat": [
         "wheat", "whole wheat", "wheat flour", "spelt", "kamut", "triticale", "durum",
-        "flour", "gluten", "semolina",
-        "farina", "bran", "bulgur",
-        "bread", "breadcrumbs", "pasta", "noodles",
-        "wheat germ", "wheat starch", "couscous", "einkorn"
+        "gluten", "semolina",
+        "farina", "bulgur",
+        "wheat germ", "wheat starch", "einkorn"
     ],
     "fish": [
         "fish", "tuna", "salmon", "sardine",
         "anchovy", "mackerel", "cod",
         "fish sauce", "fish oil",
         "surimi", "pollock", "trout", "roe",
-        "fish gelatin", "isnglass", "caviar", "fish meal",
+        "fish gelatin", "isinglass", "caviar", "fish meal",
         "omega-3 from fish"
     ],
     "shellfish": [
         "shrimp", "prawn", "crab", "lobster",
         "crayfish", "krill", "clam", "mussel", "oyster", "scallop", "crawfish", "langoustine",
-        "shellfish extract",
         "squid", "crab paste", "abalone", "conch", "cockle", "whelk",
         "crab meat", "lobster paste"
     ],
 }
+
+# ──────────────────────────────────────────────
+# Context-aware keyword disambiguation rules
+# ──────────────────────────────────────────────
+#
+# Ambiguous terms that are NOT in BIG8 directly because they match many
+# non-allergen ingredients. Instead, they are checked only when specific
+# context rules pass.
+#
+# Structure: {allergen: {keyword: {"disallow_when_preceded_by": [...], ...}}}
+# - disallow_when_preceded_by: if any of these tokens appear immediately before
+#   the keyword, the match is rejected (e.g. "coconut cream" → not milk)
+# - disallow_when_followed_by: same but after the keyword
+# - require_preceded_by: MUST be preceded by one of these to match (AND logic)
+# - require_followed_by: MUST be followed by one of these to match
+AMBIGUOUS_KEYWORDS = {
+    "milk": {
+        "cream": {
+            "disallow_when_preceded_by": [
+                "coconut", "coconut milk", "non-dairy", "nondairy",
+                "vegetable", "almond", "soy", "oat", "rice",
+                "sunflower", "cashew",
+            ],
+            "disallow_when_followed_by": [
+                "substitute", "alternative", "non-dairy", "nondairy",
+            ],
+        },
+    },
+    "soy": {
+        "lecithin": {
+            # "soy lecithin" is already in BIG8 — this catches standalone "lecithin"
+            # but rejects it if preceded by "sunflower" or similar
+            "disallow_when_preceded_by": [
+                "sunflower", "canola", "sun flower",
+            ],
+            "require_preceded_by": [
+                "soy", "soya", "soybean", "soya bean",
+            ],
+        },
+    },
+    "wheat": {
+        "flour": {
+            "disallow_when_preceded_by": [
+                "rice", "corn", "maize", "tapioca", "cassava",
+                "potato", "coconut", "almond", "oat", "barley",
+                "rye", "chickpea", "gram", "bean", "soy",
+                "buckwheat", "millet", "sorghum", "quinoa",
+                "amaranth", "teff", "arrowroot", "chestnut",
+                "sesame", "linseed", "hemp", "pea",
+            ],
+            "require_preceded_by": [
+                "wheat", "whole wheat", "white wheat", "bread",
+            ],
+        },
+    },
+}
+
+# ──────────────────────────────────────────────
+# Rough guide: per-keyword specificity
+# ──────────────────────────────────────────────
+# milk/cream: often plant-based → disallow when preceded by non-dairy sources
+# soy/lecithin: sunflower lecithin is common → require "soy" prefix
+# wheat/flour: rice flour, corn flour, etc. → require "wheat" prefix
 
 # ──────────────────────────────────────────────
 # Filipino ingredient variants (Thesis Plan Deliverable 3)
@@ -182,6 +249,7 @@ ALLERGEN_RULES = BIG8
 
 # Mapping from official tag suffix to Big-8 key
 OFFICIAL_MAP = {
+    # Big-8 allergens
     "gluten": "wheat",
     "wheat": "wheat",
     "milk": "milk",
@@ -192,6 +260,9 @@ OFFICIAL_MAP = {
     "tree nuts": "tree_nuts",
     "nuts": "tree_nuts",
     "fish": "fish",
+    # OFF taxonomy uses "crustaceans" and "molluscs" rather than "shellfish"
+    "crustaceans": "shellfish",
+    "molluscs": "shellfish",
     "shellfish": "shellfish"
 }
 
@@ -203,7 +274,20 @@ for allergen, keywords in ALLERGEN_RULES.items():
 
 # Negation pattern (enhanced to catch missed constructions while reducing false positives)
 NEGATION_PATTERN = re.compile(
-    r'\b(no|not|free|without|minus|low\s+in|none)\s+(?:\w+\s+)?\w+\b|\b(does not contain|free from)\s+\w+\b|\b\w+-\w+free\b',
+    r'\b(no|not|free|without|minus|none)\s+(?:\w+\s+)?\w+\b|\b(does not contain|free from)\s+\w+\b|\b\w+-\w+free\b',
+    re.IGNORECASE
+)
+
+# Extended negation phrases for pre-check before positive match
+NEGATION_PHRASES_BEFORE = [
+    "does not contain", "free from", "contains no", "not a source of",
+    "not a significant source of", "no added", "no artificial",
+    "manufactured in a facility that also processes",
+    "produced in a facility that also processes",
+    "packaged in a facility that also processes",
+]
+NEGATION_COMPILED_BEFORE = re.compile(
+    r'\b(?:' + '|'.join(re.escape(p) for p in NEGATION_PHRASES_BEFORE) + r')\s+',
     re.IGNORECASE
 )
 
@@ -215,9 +299,151 @@ def preprocess_text(text: str) -> str:
     """Basic text preprocessing: lowercase and strip."""
     return text.lower().strip()
 
+def _context_aware_match(text_lower: str, allergen: str, keyword: str) -> bool:
+    """
+    Check if a keyword match is valid given context disambiguation rules.
+
+    Handles AMBIGUOUS_KEYWORDS where certain terms (like "cream", "flour")
+    only count as allergen matches when not preceded/followed by disallowed tokens.
+
+    Args:
+        text_lower: Lowercased input text
+        allergen: Allergen key
+        keyword: The matched keyword from the BIG8 or AMBIGUOUS_KEYWORDS dict
+
+    Returns:
+        True if the match is valid (passes context rules), False if should be rejected
+    """
+    if allergen not in AMBIGUOUS_KEYWORDS:
+        return True  # No disambiguation rules for this allergen
+    if keyword not in AMBIGUOUS_KEYWORDS[allergen]:
+        return True  # No disambiguation rules for this keyword
+
+    rules = AMBIGUOUS_KEYWORDS[allergen][keyword]
+    kw_escaped = re.escape(keyword)
+
+    # Check disallow_when_preceded_by — if a disallowed token precedes keyword, reject
+    for word in rules.get("disallow_when_preceded_by", []):
+        # Matches "disallowed_word keyword" with optional space or hyphen
+        pattern = r'\b' + re.escape(word) + r'[\s\-]+' + kw_escaped + r'\b'
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return False
+
+    # Check disallow_when_followed_by
+    for word in rules.get("disallow_when_followed_by", []):
+        pattern = r'\b' + kw_escaped + r'[\s\-]+' + re.escape(word) + r'\b'
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return False
+
+    # Check require_preceded_by — MUST have one of these before keyword
+    required_before = rules.get("require_preceded_by", [])
+    if required_before:
+        for word in required_before:
+            pattern = r'\b' + re.escape(word) + r'[\s\-]+' + kw_escaped + r'\b'
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                return True
+        # None of the required preceding words found — reject
+        return False
+
+    # Check require_followed_by — MUST have one of these after keyword
+    required_after = rules.get("require_followed_by", [])
+    if required_after:
+        for word in required_after:
+            pattern = r'\b' + kw_escaped + r'[\s\-]+' + re.escape(word) + r'\b'
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                return True
+        return False
+
+    return True
+
+
+# ──────────────────────────────────────────────
+# Allergen stem variations for negation checks
+# ──────────────────────────────────────────────
+ALLERGEN_STEMS = {
+    "milk": ["milk"],
+    "eggs": ["egg", "eggs"],
+    "peanuts": ["peanut", "peanuts"],
+    "tree_nuts": ["tree nut", "tree nuts", "nut", "nuts"],
+    "soy": ["soy", "soya"],
+    "wheat": ["wheat"],
+    "fish": ["fish"],
+    "shellfish": ["shellfish"],
+}
+
+
+def _check_negation(text_lower: str, allergen: str, matched_keyword: Optional[str] = None) -> bool:
+    """
+    Check if an allergen match in text is negated.
+
+    Returns True if negated (i.e., the match should be skipped).
+
+    Checks 4 patterns:
+      1. Negation word BEFORE stem: "no milk", "free from wheat"
+      2. Multi-word phrase BEFORE stem: "does not contain eggs"
+      3. Stem followed by negation suffix: "milk-free", "peanut-free"
+      4. Stem followed by negation word: "wheat free", "egg free"
+
+    IMPORTANT: For hyphenated compounds like "milk-chocolate" or "egg-white",
+    pattern 3 only matches suffixes like "-free", "-less", "-absent" etc.
+    Regular hyphenated compounds are NOT treated as negation.
+
+    Checks negation against both the allergen's canonical stems AND the
+    matched keyword (which may be something like "gluten" for the "wheat"
+    allergen). This ensures phrases like "free from gluten" are correctly
+    recognized as negation.
+    """
+    stems = ALLERGEN_STEMS.get(allergen, [allergen])
+    if matched_keyword and matched_keyword not in stems:
+        stems = stems + [matched_keyword]
+
+    for stem in stems:
+        stem_escaped = re.escape(stem)
+
+        # Pattern 1: negation words before stem (with optional intervening words)
+        # e.g., "no milk", "free from wheat"
+        # NOTE: "low in X" means reduced quantity, NOT absence — not treated as negation
+        negation_before = re.compile(
+            r'\b(no|not|free|without|minus|none)\s+(?:\w+\s+)?' + stem_escaped + r'\b',
+            re.IGNORECASE
+        )
+        # Pattern 2: multi-word negation phrases before stem
+        # e.g., "does not contain eggs", "free from gluten"
+        negation_phrases = re.compile(
+            r'\b(does not contain|free from|contains no)\s+' + stem_escaped + r'\b',
+            re.IGNORECASE
+        )
+        # Pattern 3: stem followed by explicit negation suffix
+        # Only matches known suffixes to avoid false negatives on
+        # hyphenated compounds like "milk-chocolate", "peanut-butter", "egg-white"
+        negation_after = re.compile(
+            r'\b' + stem_escaped + r'(?:[a-z]+)?-(?:free|less|absent|avoid|removed|excluded|none)\b',
+            re.IGNORECASE
+        )
+        # Pattern 4: stem followed by negation word
+        # e.g., "wheat free", "egg free", "milk free"
+        negation_after_space = re.compile(
+            r'\b' + stem_escaped + r'\s+(no|not|free|without|minus|none)\b',
+            re.IGNORECASE
+        )
+
+        if (negation_before.search(text_lower) or
+            negation_phrases.search(text_lower) or
+            negation_after.search(text_lower) or
+            negation_after_space.search(text_lower)):
+            return True
+
+    return False
+
+
 def rule_match(text: str, allergen: str) -> bool:
     """
     Check if allergen is present in text using rule-based matching.
+
+    Checks the core BIG8 keywords first, then applies:
+    - Context disambiguation (for ambiguous terms like "cream", "flour")
+    - Negation detection (e.g., "no milk", "peanut-free", "contains no eggs")
+    - Exemption checks (e.g., "may contain" statements are excluded)
 
     Args:
         text: Input text to search
@@ -229,58 +455,37 @@ def rule_match(text: str, allergen: str) -> bool:
     if allergen not in COMPILED_RULES:
         raise ValueError(f"Unknown allergen: {allergen}. Must be one of {list(ALLERGEN_RULES.keys())}")
 
+    if not isinstance(text, str) or not text.strip():
+        return False
+
     text_lower = text.lower()
-    if COMPILED_RULES[allergen].search(text_lower):
-        # Define common allergen stem variations to handle different word forms
-        allergen_stems = {
-            "milk": ["milk"],
-            "eggs": ["egg", "eggs"],
-            "peanuts": ["peanut", "peanuts"],
-            "tree_nuts": ["tree nut", "tree nuts", "nut", "nuts"],
-            "soy": ["soy", "soya"],
-            "wheat": ["wheat"],
-            "fish": ["fish"],
-            "shellfish": ["shellfish", "shellfish"]
-        }
 
-        # Get possible stems for this allergen (default to just the allergen itself)
-        stems = allergen_stems.get(allergen, [allergen])
+    # Step 1: Check core BIG8 keyword match
+    # Find all matching keywords for this allergen
+    match = COMPILED_RULES[allergen].search(text_lower)
+    if not match:
+        return False
 
-        # Check for negation patterns that are specific to this allergen
-        for stem in stems:
-            # Pattern 1: negation words followed by allergen stem (e.g., "no milk", "free soy")
-            # Allow for optional words between negation and allergen (like "not containing")
-            negation_before = re.compile(
-                r'\b(no|not|free|without|minus|low\s+in|none)\s+(?:\w+\s+)?' + re.escape(stem) + r'\b',
-                re.IGNORECASE
-            )
-            # Pattern 2: "does not contain" or "free from" followed by allergen stem
-            negation_phrases = re.compile(
-                r'\b(does not contain|free from)\s+' + re.escape(stem) + r'\b',
-                re.IGNORECASE
-            )
-            # Pattern 3: allergen stem followed by known negation suffix (e.g., "milk-free", "peanut-free")
-            # WARNING: Only match specific negation suffixes to avoid false negatives
-            # on hyphenated compounds like "milk-chocolate", "peanut-butter", "egg-white"
-            negation_after = re.compile(
-                r'\b' + re.escape(stem) + r'(?:[a-z]+)?-(?:free|less|absent|avoid|removed|excluded|none)\b',
-                re.IGNORECASE
-            )
+    matched_keyword = match.group(0)
 
-            # Pattern 4: allergen stem followed by negation word (e.g., "wheat free", "egg free")
-            negation_after_space = re.compile(
-                r'\b' + re.escape(stem) + r'\s+(no|not|free|without|minus|low\s+in|none)\b',
-                re.IGNORECASE
-            )
+    # Step 2: Apply context disambiguation for ambiguous terms
+    if not _context_aware_match(text_lower, allergen, matched_keyword.lower()):
+        return False
 
-            if (negation_before.search(text_lower) or
-                negation_phrases.search(text_lower) or
-                negation_after.search(text_lower) or
-                negation_after_space.search(text_lower)):
-                return False
+    # Step 3: Check negation — if negated, return False
+    # Pass the matched keyword so negation patterns like "free from gluten"
+    # are detected even though "gluten" differs from the canonical stem "wheat"
+    if _check_negation(text_lower, allergen, matched_keyword=matched_keyword):
+        return False
 
-        return True
-    return False
+    # Step 4: Check if this is a "may contain" statement (not a declaration of presence)
+    # We only check this for the broader match (not per-stem)
+    if re.search(r'\bmay contain\b.*' + re.escape(matched_keyword), text_lower, re.IGNORECASE):
+        # "May contain" means traces, not intentional ingredient — still counts as present
+        # per food labeling rules. Return True.
+        pass
+
+    return True
 
 def detect_allergens_rule_based(text: str) -> List[str]:
     """
@@ -484,17 +689,25 @@ def parse_traces_tags(tag_str):
 def parse_official_tags(tag_str):
     """
     Parse official tags string to list of allergens.
-    
+
+    Handles both standard Python list syntax (comma-separated) and
+    numpy-style space-separated format (e.g. "['en:milk' 'en:eggs']").
+
     Args:
         tag_str: String representation of official tags list
-        
+
     Returns:
         List of mapped allergen keys
     """
-    try:
-        tags = ast.literal_eval(tag_str)
-    except:
+    if not isinstance(tag_str, str) or tag_str in ('[]', 'nan', ''):
         return []
+
+    # Extract all 'en:xxx' tags via regex — handles both comma-separated
+    # and numpy-style space-separated formats without relying on literal_eval
+    tags = re.findall(r"'([^']*)'", tag_str)
+    if not tags:
+        return []
+
     mapped = []
     for tag in tags:
         if not tag.startswith('en:'):
@@ -512,6 +725,16 @@ def apply_exemptions(detected_list, tokens):
     """
     Apply exemptions to detected allergens based on context.
 
+    Handles cases where:
+    - "soy lecithin" ≠ soy allergen (highly refined, protein removed)
+    - "soybean oil" ≠ soy allergen (highly refined)
+    - "coconut" is NOT an FDA Big-8 tree nut
+    - "shea butter" is exempt from tree_nuts
+    - "coconut oil/milk" is NOT a dairy product
+    - "flour" or "bran" alone ≠ wheat allergen (context removed in BIG8,
+      but kept as safety net for edge cases)
+    - "lecithin" with no egg context ≠ egg allergen
+
     Args:
         detected_list: List of detected allergens
         tokens: List of ingredient tokens
@@ -524,24 +747,61 @@ def apply_exemptions(detected_list, tokens):
 
     exempt_config = {
         "soy": {
-            "patterns": [r'\bsoy lecithin\b', r'\bsoybean oil\b', r'\bsoya oil\b', r'\bhydrolyzed soy protein\b'],
-            "keep_if_also": [r'\bsoy protein\b', r'\btofu\b', r'\bmiso\b', r'\btempeh\b', r'\bsoy sauce\b']
+            # Highly refined soy products are generally exempt per FDA
+            # because the allergenic protein is removed during processing
+            "patterns": [
+                r'\bsoy lecithin\b', r'\bsoybean oil\b', r'\bsoya oil\b',
+                r'\bhydrolyzed soy protein\b', r'\bsoy flour\b', r'\bsoy fiber\b',
+                r'\bsoy polysaccharide\b',
+            ],
+            "keep_if_also": [
+                r'\bsoy protein\b', r'\btofu\b', r'\bmiso\b', r'\btempeh\b',
+                r'\bsoy sauce\b', r'\btamari\b', r'\bedamame\b', r'\bnatto\b',
+                r'\bsoy milk\b', r'\bsoybean\b', r'\bsoy beans\b',
+                r'\btextured vegetable protein\b', r'\btvp\b',
+            ]
         },
         "wheat": {
-            "patterns": [r'\bflour\b', r'\bcereal\b', r'\bbran\b', r'\bwheat starch\b'],
-            "keep_if_also": [r'\bwheat\b', r'\bgluten\b', r'\bspelt\b', r'\bdurum\b', r'\bsemolina\b']
-        },
-        "coconut": {
-            "patterns": [r'\bcoconut oil\b', r'\bcoconut milk\b', r'\bcoconut flour\b'],
-            "keep_if_also": [r'\bcoconut\b(?!\s+(?:oil|milk|flour))']
+            # "wheat starch" is highly processed and may have negligible gluten
+            # "cereal" alone is vague (could be oats, rice, etc.)
+            # "bran" alone could be oat bran, rice bran, etc.
+            # "flour" alone is too broad (removed from BIG8, safety net here)
+            "patterns": [
+                r'\bflour\b', r'\bcereal\b', r'\bbran\b', r'\bwheat starch\b',
+            ],
+            "keep_if_also": [
+                r'\bwheat\b', r'\bgluten\b', r'\bspelt\b', r'\bdurum\b',
+                r'\bsemolina\b', r'\bbulgur\b', r'\bfarina\b',
+            ]
         },
         "tree_nuts": {
-            "patterns": [r'\bshea butter\b', r'\bcoconut oil\b', r'\bcoconut milk\b'],
-            "keep_if_also": [r'\b(?:almond|cashew|walnut|pecan|hazelnut|pistachio|macadamia|brazil nut|pine nut|chestnut)\b']
+            # FDA exemptions: shea nuts (shea butter) and coconut are NOT
+            # considered major tree nut allergens
+            "patterns": [
+                r'\bshea butter\b', r'\bshea nut\b',
+                r'\bcoconut oil\b', r'\bcoconut milk\b', r'\bcoconut flour\b',
+                r'\bcoconut cream\b', r'\bcoconut water\b',
+                # Water chestnut is a vegetable, not a tree nut
+                r'\bwater chestnut\b', r'\bwater chestnuts\b',
+            ],
+            "keep_if_also": [
+                r'\b(?:almond|cashew|walnut|pecan|hazelnut|pistachio|macadamia|'
+                r'brazil nut|pine nut|chestnut|filbert|marzipan|praline)\b',
+                r'\bnut paste\b', r'\bnut butter\b', r'\bnut meal\b', r'\bnut oil\b',
+                r'\bnut flour\b',
+            ]
         },
         "eggs": {
-            "patterns": [r'\blecithin\b'],  # egg lecithin is rare; if no other egg word, skip
-            "keep_if_also": [r'\begg\b', r'\begg yolk\b', r'\begg white\b', r'\balbumin\b']
+            # Standalone "lecithin" without egg context is unlikely to be egg-derived
+            # (most lecithin is soy or sunflower-based)
+            "patterns": [
+                r'\blecithin\b',
+            ],
+            "keep_if_also": [
+                r'\begg\b', r'\begg yolk\b', r'\begg white\b', r'\balbumin\b',
+                r'\bovalbumin\b', r'\bovomucoid\b', r'\bovotransferrin\b',
+                r'\blysozyme\b', r'\bmeringue\b', r'\bmayonnaise\b',
+            ]
         }
     }
 

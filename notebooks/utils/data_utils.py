@@ -20,6 +20,7 @@ Usage Examples:
     ...     texts, labels, train_size=0.7, val_size=0.15, test_size=0.15
     ... )
     >>> augmented_df = augment_dataframe(train_df, num_augmented=2)
+"""
 
 # Re-export commonly used functions
 __all__ = [
@@ -34,8 +35,12 @@ __all__ = [
     'save_metadata',
     'load_metadata',
     'get_data_directories',
+    'serialize_list_for_csv',
+    'normalize_list_column',
+    'normalize_dict_column',
+    'validate_label_consistency',
+    'prepare_dataframe_for_save',
 ]
-"""
 
 import pandas as pd
 import numpy as np
@@ -219,13 +224,23 @@ def augment_dataframe(df: pd.DataFrame, num_augmented: int = 2,
     if SYNONYMS is None:
         SYNONYMS = {
             "milk": ["cow's milk", "dairy milk", "whole milk", "low-fat milk"],
-            "eggs": ["hen's eggs", "whole eggs", "egg product"],
-            "peanuts": ["groundnuts", "peanut kernels"],
-            "tree_nuts": ["almonds", "cashews", "walnuts", "hazelnuts", "pecans"],
-            "soy": ["soya", "soybean", "edamame"],
-            "wheat": ["whole wheat", "wheat grain"],
-            "fish": ["fish meat", "white fish"],
-            "shellfish": ["shrimp", "prawn", "crab", "lobster"]
+            "eggs": ["hen's eggs", "whole eggs", "egg product",
+                     "egg white powder", "dried egg", "egg solids", "pasteurized eggs"],
+            "peanuts": ["groundnuts", "peanut kernels",
+                        "monkey nuts", "peanut flour", "peanut protein"],
+            "tree_nuts": ["almonds", "cashews", "walnuts", "hazelnuts", "pecans",
+                          "pistachio", "macadamia", "pine nuts", "brazil nuts",
+                          "chestnuts", "marzipan", "praline"],
+            "soy": ["soya", "soybean", "edamame",
+                    "soy protein isolate", "soy flour", "soy milk"],
+            "wheat": ["whole wheat", "wheat grain",
+                      "wheat germ", "wheat starch", "triticale"],
+            "fish": ["fish meat", "white fish",
+                     "tuna", "salmon", "sardine", "anchovy", "mackerel",
+                     "cod", "pollock", "trout", "surimi", "roe", "tuna flakes"],
+            "shellfish": ["shrimp", "prawn", "crab", "lobster",
+                          "crayfish", "krill", "clam", "mussel", "oyster",
+                          "scallop", "squid", "crawfish", "abalone", "conch", "cockle"]
         }
 
     if ALLERGEN_KEYWORDS is None:
@@ -284,6 +299,108 @@ def augment_dataframe(df: pd.DataFrame, num_augmented: int = 2,
             })
 
     return pd.DataFrame(augmented_rows)
+
+
+def augment_targeted(
+    df: pd.DataFrame,
+    target_allergens: Dict[str, float],
+    ALLERGENS: List[str] = None,
+    SYNONYMS: Dict[str, List[str]] = None,
+    ALLERGEN_KEYWORDS: Dict[str, List[str]] = None,
+    random_state: int = 42,
+) -> pd.DataFrame:
+    """Augment a dataset by oversampling rows containing specific rare allergens.
+
+    For each target allergen, finds rows where that allergen is present and
+    creates multiple variant copies via synonym replacement. The augmentation
+    factor determines how many extra copies per original row.
+
+    Args:
+        df: Input DataFrame with 'text' (or 'ingredients_cleaned') and 'labels' columns.
+        target_allergens: Dict mapping allergen names to multipliers.
+            E.g., {"tree_nuts": 5} means 5 copies per tree_nuts-positive row.
+        ALLERGENS: List of allergen class names (loaded from text_processing if None).
+        SYNONYMS: Dictionary mapping allergens to synonym lists.
+        ALLERGEN_KEYWORDS: Dictionary mapping allergens to keyword lists.
+        random_state: Random seed for reproducibility.
+
+    Returns:
+        DataFrame with original rows plus augmented copies.
+    """
+    if ALLERGENS is None:
+        from .text_processing import get_allergen_list as _gal
+        ALLERGENS = _gal()
+
+    if SYNONYMS is None:
+        SYNONYMS = {
+            "milk": ["cow's milk", "dairy milk", "whole milk", "low-fat milk"],
+            "eggs": ["hen's eggs", "whole eggs", "egg product",
+                     "egg white powder", "dried egg", "egg solids", "pasteurized eggs"],
+            "peanuts": ["groundnuts", "peanut kernels",
+                        "monkey nuts", "peanut flour", "peanut protein"],
+            "tree_nuts": ["almonds", "cashews", "walnuts", "hazelnuts", "pecans",
+                          "pistachio", "macadamia", "pine nuts", "brazil nuts",
+                          "chestnuts", "marzipan", "praline"],
+            "soy": ["soya", "soybean", "edamame",
+                    "soy protein isolate", "soy flour", "soy milk"],
+            "wheat": ["whole wheat", "wheat grain",
+                      "wheat germ", "wheat starch", "triticale"],
+            "fish": ["fish meat", "white fish",
+                     "tuna", "salmon", "sardine", "anchovy", "mackerel",
+                     "cod", "pollock", "trout", "surimi", "roe", "tuna flakes"],
+            "shellfish": ["shrimp", "prawn", "crab", "lobster",
+                          "crayfish", "krill", "clam", "mussel", "oyster",
+                          "scallop", "squid", "crawfish", "abalone", "conch", "cockle"]
+        }
+
+    if ALLERGEN_KEYWORDS is None:
+        from .text_processing import BIG8 as _BIG8
+        ALLERGEN_KEYWORDS = {k: v[:5] for k, v in _BIG8.items()}
+
+    np.random.seed(random_state)
+
+    # Determine which column holds the text
+    text_col = 'text' if 'text' in df.columns else 'ingredients_cleaned'
+
+    def synonym_replacement(text: str, p: float = 0.3) -> str:
+        tokens = re.split(r'(\W+)', text)
+        new_tokens = []
+        for t in tokens:
+            t_lower = t.strip().lower()
+            if t_lower in SYNONYMS and np.random.random() < p:
+                new_tokens.append(np.random.choice(SYNONYMS[t_lower]))
+            else:
+                new_tokens.append(t)
+        return ''.join(new_tokens)
+
+    augmented_rows = []
+    for allergen, multiplier in target_allergens.items():
+        if allergen not in ALLERGENS:
+            continue
+        allergen_idx = ALLERGENS.index(allergen)
+        # Find rows where this allergen is present
+        mask = df['labels'].apply(lambda lbl: isinstance(lbl, (list, np.ndarray)) and len(lbl) > allergen_idx and lbl[allergen_idx] == 1)
+        if not mask.any():
+            continue
+        target_rows = df[mask]
+        num_copies = max(1, int(multiplier))
+        for _, row in target_rows.iterrows():
+            for _ in range(num_copies):
+                new_text = synonym_replacement(row[text_col])
+                augmented_rows.append({
+                    text_col: new_text,
+                    'ingredients_cleaned': new_text,
+                    'labels': row['labels'],
+                    'detected_allergens': [ALLERGENS[i] for i, v in enumerate(row['labels']) if v == 1],
+                })
+
+    augmented_df = pd.DataFrame(augmented_rows)
+    if len(augmented_df) == 0:
+        return df.copy()
+
+    # Concatenate original + augmented
+    result = pd.concat([df, augmented_df], ignore_index=True)
+    return result
 
 
 def labels_to_binary(label_list: List[List[str]], classes: List[str]) -> np.ndarray:
@@ -374,3 +491,197 @@ def get_data_directories() -> Dict[str, str]:
         "outputs": os.path.join(base_dir, "outputs"),
         "notebooks": os.path.join(base_dir, "notebooks")
     }
+
+
+# ──────────────────────────────────────────────
+# Label format normalization utilities
+# ──────────────────────────────────────────────
+# These functions handle the common task of converting between
+# different label representation formats:
+#   - Python list objects: ['milk', 'wheat']
+#   - String literals:    "['milk', 'wheat']"  (from CSV save/load)
+#   - Binary vectors:     [1, 0, 1, 0, 0, 1, 0, 0]
+#   - JSON strings:       '["milk", "wheat"]'
+#
+# Using these consistently prevents the "mixed types" bugs where
+# a column contains both string and list objects.
+
+def serialize_list_for_csv(lst: list) -> str:
+    """
+    Serialize a list to a stable string format for CSV storage.
+    Uses JSON format ('["milk", "wheat"]') rather than Python repr
+    ("['milk', 'wheat']") because JSON is more portable and consistent.
+
+    Args:
+        lst: Python list to serialize (e.g., ['milk', 'wheat'])
+
+    Returns:
+        JSON-formatted string (e.g., '["milk", "wheat"]')
+    """
+    return json.dumps(lst)
+
+
+def normalize_list_column(series: pd.Series) -> pd.Series:
+    """
+    Normalize a DataFrame column that may contain mixed list/string types.
+
+    Ensures every entry is a Python list object, parsing string representations
+    as needed. Handles:
+    - Already a list: returned as-is
+    - JSON string:     '["milk", "wheat"]' → ['milk', 'wheat']
+    - Python repr:     "['milk', 'wheat']" → ['milk', 'wheat']
+    - NaN/None:        → []
+
+    Args:
+        series: Pandas Series potentially containing mixed types
+
+    Returns:
+        Series where every entry is a Python list
+    """
+    def _normalize(val):
+        if isinstance(val, list):
+            return val
+        if isinstance(val, str):
+            # Try JSON first (cleaner format)
+            if val.startswith('['):
+                try:
+                    return json.loads(val)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+                # Fall back to ast.literal_eval for Python repr
+                try:
+                    result = ast.literal_eval(val)
+                    if isinstance(result, list):
+                        return result
+                except (SyntaxError, ValueError):
+                    pass
+            # Single word that looks like a raw value?
+            return []
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            return []
+        return []
+
+    return series.apply(_normalize)
+
+
+def normalize_dict_column(series: pd.Series) -> pd.Series:
+    """
+    Normalize a DataFrame column that may contain mixed dict/string types.
+
+    Similar to normalize_list_column but for dictionary values.
+    Handles serializations via both JSON and Python repr.
+
+    Args:
+        series: Pandas Series potentially containing mixed types
+
+    Returns:
+        Series where every entry is a Python dict
+    """
+    def _normalize(val):
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str):
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            try:
+                result = ast.literal_eval(val)
+                if isinstance(result, dict):
+                    return result
+            except (SyntaxError, ValueError):
+                pass
+            return {}
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            return {}
+        return {}
+
+    return series.apply(_normalize)
+
+
+def validate_label_consistency(df: pd.DataFrame, label_columns: List[str] = None,
+                               expected_length: Optional[int] = None) -> List[str]:
+    """
+    Validate that label columns in a DataFrame are consistent.
+
+    Checks:
+    - No NaN values in label columns
+    - Every entry has the expected length (only checked if expected_length is set)
+    - Every entry is a list type
+
+    Args:
+        df: DataFrame to validate
+        label_columns: List of column names to check (if None, checks all object columns)
+        expected_length: Expected length of each label vector (None = skip length check)
+
+    Returns:
+        List of validation issues found (empty if all pass)
+    """
+    issues = []
+    if label_columns is None:
+        label_columns = [col for col in df.columns
+                        if any(name in col.lower()
+                              for name in ['allergen', 'label', 'detected', 'combined'])]
+
+    for col in label_columns:
+        if col not in df.columns:
+            continue
+        for idx, val in enumerate(df[col]):
+            if isinstance(val, float) and np.isnan(val):
+                issues.append(f"{col}[{idx}]: NaN value")
+            elif isinstance(val, str):
+                # String means it wasn't parsed — may be OK but note it
+                if val.startswith('['):
+                    issues.append(f"{col}[{idx}]: string repr (needs parsing): {val[:50]}")
+            elif isinstance(val, (list, tuple)):
+                if expected_length is not None and len(val) != expected_length:
+                    issues.append(f"{col}[{idx}]: length {len(val)}, expected {expected_length}")
+            # dict is OK for combined columns
+            elif not isinstance(val, dict):
+                issues.append(f"{col}[{idx}]: unexpected type {type(val).__name__}")
+
+    return issues
+
+
+# ──────────────────────────────────────────────
+# DataFrame serialization helpers
+# ──────────────────────────────────────────────
+
+# Columns in labeled datasets that contain list/dict values
+LIST_LIKE_COLUMNS = {
+    'detected_allergens', 'official_allergens_mapped', 'traces_allergens_mapped',
+    'may_contain_allergens', 'combined_allergens', 'all_allergens',
+    'detected_only', 'detected_or_official', 'consensus',
+    'detected_with_traces', 'detected_with_may_contain',
+}
+DICT_LIKE_COLUMNS = {'combined_allergens'}
+
+
+def prepare_dataframe_for_save(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize all list/dict columns in a DataFrame for reliable CSV serialization.
+
+    Converts every cell in known list-like columns to JSON-formatted strings so
+    that pandas to_csv produces consistent, parseable output.
+
+    Args:
+        df: Input DataFrame (may contain mixed list/string types)
+
+    Returns:
+        DataFrame with all list/dict columns serialized to JSON strings
+    """
+    result = df.copy()
+    for col in result.columns:
+        col_lower = col.lower()
+        # Check if this column likely contains list values
+        if col in DICT_LIKE_COLUMNS or col_lower in DICT_LIKE_COLUMNS:
+            result[col] = result[col].apply(
+                lambda x: json.dumps(x) if not isinstance(x, str) and x is not None
+                else x if isinstance(x, str) else '{}'
+            )
+        elif col in LIST_LIKE_COLUMNS or col_lower in LIST_LIKE_COLUMNS:
+            result[col] = result[col].apply(
+                lambda x: json.dumps(x) if not isinstance(x, str) and x is not None
+                else x if isinstance(x, str) else '[]'
+            )
+    return result

@@ -14,7 +14,7 @@ __pycache__/
 # Data and model files
 data/
 models/
-outputs/
+output/
 datasets/
 
 # VS Code settings
@@ -32,3 +32,5 @@ models/
 
 #internal
 internal/
+tests/
+docs/

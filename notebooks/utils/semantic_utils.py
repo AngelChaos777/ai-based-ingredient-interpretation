@@ -61,15 +61,12 @@ SEMANTIC_CATEGORIES = [
     "humectant",
     "flavoring",
     "spice",
-    "herb",
     "fruit_derived",
     "vegetable_derived",
     "fermented",
-    "smoked",
     "cured",
     "enzyme",
     "culture",
-    "prebiotic",
     "salt_substitute",
 ]
 
@@ -219,7 +216,7 @@ INGREDIENT_SEMANTIC_MAP: Dict[str, List[str]] = {
     "rice flour": ["carbohydrate_source", "plant_derived"],
     "modified starch": ["carbohydrate_source", "thickener", "food_additive"],
     "modified corn starch": ["carbohydrate_source", "thickener", "food_additive"],
-    "inulin": ["fiber", "plant_derived", "prebiotic"],
+    "inulin": ["fiber", "plant_derived"],
     "oat fiber": ["fiber", "plant_derived"],
 
     # Acids and acidity regulators
@@ -265,15 +262,15 @@ INGREDIENT_SEMANTIC_MAP: Dict[str, List[str]] = {
     "iodized salt": ["salt", "mineral"],
     "sodium chloride": ["salt", "mineral", "sodium_compound"],
 
-    # Spices and herbs
+    # Spices
     "garlic": ["spice", "vegetable_derived", "flavoring"],
     "onion": ["vegetable_derived", "flavoring"],
     "onion powder": ["spice", "vegetable_derived", "flavoring"],
     "garlic powder": ["spice", "vegetable_derived", "flavoring"],
     "black pepper": ["spice", "plant_derived", "flavoring"],
     "paprika": ["spice", "colorant", "plant_derived", "vegetable_derived"],
-    "oregano": ["herb", "plant_derived", "flavoring"],
-    "basil": ["herb", "plant_derived", "flavoring"],
+    "oregano": ["spice", "plant_derived", "flavoring"],
+    "basil": ["spice", "plant_derived", "flavoring"],
     "cinnamon": ["spice", "plant_derived", "flavoring"],
 
     # Nuts
@@ -339,6 +336,213 @@ INGREDIENT_SEMANTIC_MAP: Dict[str, List[str]] = {
     "vanilla extract": ["flavoring", "plant_derived"],
     "malt": ["flavoring", "fermented", "carbohydrate_source"],
     "barley malt": ["flavoring", "fermented", "carbohydrate_source"],
+
+    # ── Phase 3: Expanded mappings (from unknown_ingredients_for_labeling.csv) ──
+
+    # Self-identifying functional terms
+    "spices": ["spice", "plant_derived", "flavoring"],
+    "emulsifier": ["emulsifier", "food_additive"],
+    "emulsifiers": ["emulsifier", "food_additive"],
+    "stabilizer": ["stabilizer", "food_additive"],
+    "stabilizers": ["stabilizer", "food_additive"],
+    "antioxidant": ["antioxidant", "food_additive"],
+    "antioxidants": ["antioxidant", "food_additive"],
+    "acidity regulator": ["acidulant", "food_additive"],
+    "acidity regulators": ["acidulant", "food_additive"],
+    "preservative": ["preservative", "food_additive"],
+    "preservatives": ["preservative", "food_additive"],
+    "flavor enhancer": ["flavor_enhancer", "food_additive"],
+    "flavor enhancers": ["flavor_enhancer", "food_additive"],
+    "sweetener": ["sweetener", "added_sugar"],
+    "sweeteners": ["sweetener", "added_sugar"],
+    "thickener": ["thickener", "food_additive"],
+    "thickeners": ["thickener", "food_additive"],
+    "acidulant": ["acidulant", "food_additive"],
+    "acidulants": ["acidulant", "food_additive"],
+    "humectant": ["humectant", "food_additive"],
+    "humectants": ["humectant", "food_additive"],
+    "colorant": ["colorant", "food_additive"],
+    "colorants": ["colorant", "food_additive"],
+    "spice": ["spice", "plant_derived", "flavoring"],
+    "seasoning": ["flavoring", "spice", "food_additive"],
+    "seasonings": ["flavoring", "spice", "food_additive"],
+    "flavoring": ["flavoring", "food_additive"],
+    "flavorings": ["flavoring", "food_additive"],
+    "gelling agent": ["gelling_agent", "food_additive"],
+    "leavening agent": ["leavening_agent"],
+    "leavening agents": ["leavening_agent"],
+    "raising agent": ["leavening_agent"],
+    "raising agents": ["leavening_agent"],
+    "anticaking agent": ["food_additive", "mineral"],
+    "anti-caking agent": ["food_additive", "mineral"],
+    "nature-identical flavor": ["flavoring", "food_additive"],
+    "nature-identical flavors": ["flavoring", "food_additive"],
+    "permitted flavouring": ["flavoring", "food_additive"],
+    "dough improver": ["food_additive", "emulsifier"],
+    "dough improvers": ["food_additive", "emulsifier"],
+    "emulsifying agent": ["emulsifier", "food_additive"],
+    "coloring": ["colorant", "food_additive"],
+    "colouring": ["colorant", "food_additive"],
+
+    # Specific chemicals and additives
+    "silicon dioxide": ["mineral", "food_additive"],
+    "sodium citrate": ["sodium_compound", "acidulant", "food_additive"],
+    "sucralose": ["sweetener", "added_sugar", "food_additive"],
+    "tartrazine": ["colorant", "food_additive"],
+    "sunset yellow": ["colorant", "food_additive"],
+    "tbhq": ["antioxidant", "preservative", "food_additive"],
+    "ammonium bicarbonate": ["leavening_agent", "mineral"],
+    "sodium carbonate": ["mineral", "food_additive"],
+    "dipotassium phosphate": ["mineral", "food_additive", "stabilizer"],
+    "sodium polyphosphate": ["stabilizer", "food_additive", "sodium_compound"],
+    "potassium carbonate": ["mineral", "food_additive"],
+    "acesulfame potassium": ["sweetener", "added_sugar", "food_additive"],
+    "steviol glycosides": ["sweetener", "plant_derived"],
+    "vanillin": ["flavoring", "food_additive"],
+    "beta-carotene": ["colorant", "vitamin", "food_additive"],
+    "beta carotene": ["colorant", "vitamin", "food_additive"],
+    "datem": ["emulsifier", "food_additive"],
+    "sodium carboxymethyl cellulose": ["thickener", "stabilizer", "food_additive"],
+    "sodium stearoyl lactylate": ["emulsifier", "food_additive"],
+    "disodium 5'-guanylate": ["flavor_enhancer", "food_additive", "sodium_compound"],
+    "disodium 5'-inosinate": ["flavor_enhancer", "food_additive", "sodium_compound"],
+    "sodium erythorbate": ["antioxidant", "sodium_compound", "food_additive"],
+    "sodium diacetate": ["preservative", "acidulant", "food_additive"],
+    "sodium phosphate": ["mineral", "food_additive"],
+    "trisodium citrate": ["acidulant", "food_additive", "sodium_compound"],
+    "allura red": ["colorant", "food_additive"],
+    "brilliant blue": ["colorant", "food_additive"],
+    "disodium phosphate": ["mineral", "food_additive", "stabilizer"],
+
+    # Vitamins
+    "riboflavin": ["vitamin", "colorant"],
+    "niacin": ["vitamin"],
+    "niacinamide": ["vitamin"],
+    "cyanocobalamin": ["vitamin"],
+    "pyridoxine hydrochloride": ["vitamin"],
+    "folic acid": ["vitamin"],
+    "biotin": ["vitamin"],
+    "pantothenic acid": ["vitamin"],
+    "vitamins": ["vitamin"],
+    "minerals": ["mineral"],
+    "vitamin b2": ["vitamin"],
+    "vitamin b3": ["vitamin"],
+    "vitamin b6": ["vitamin"],
+    "vitamin b12": ["vitamin"],
+    "vitamin e": ["vitamin", "antioxidant"],
+    "vitamin k": ["vitamin"],
+
+    # Allergen-relevant ingredients (also helps allergen detection mapping)
+    "fish": ["animal_derived", "protein_source"],
+    "shrimp": ["animal_derived", "protein_source"],
+    "shrimps": ["animal_derived", "protein_source"],
+    "tuna flakes": ["animal_derived", "protein_source"],
+    "beef": ["animal_derived", "protein_source"],
+    "pork": ["animal_derived", "protein_source"],
+    "chicken": ["animal_derived", "protein_source"],
+    "chicken meat": ["animal_derived", "protein_source"],
+    "chicken broth": ["animal_derived", "flavoring"],
+    "sesame": ["plant_derived", "fat_source", "oil_source", "protein_source"],
+    "sesame seeds": ["plant_derived", "fat_source", "oil_source"],
+    "mustard": ["spice", "plant_derived", "flavoring"],
+    "oats": ["plant_derived", "carbohydrate_source", "fiber"],
+    "crustacean": ["animal_derived"],
+    "crustaceans": ["animal_derived"],
+    "molluscs": ["animal_derived"],
+    "mollusks": ["animal_derived"],
+    "squid": ["animal_derived", "protein_source"],
+    "crab": ["animal_derived", "protein_source"],
+    "tree nuts": ["plant_derived", "fat_source", "protein_source"],
+    "tree nut": ["plant_derived", "fat_source", "protein_source"],
+    "sulphites": ["preservative", "food_additive"],
+    "sulfites": ["preservative", "food_additive"],
+    "celery": ["vegetable_derived", "flavoring"],
+    "dairy solids": ["milk_derivative", "animal_derived"],
+    "fish oil": ["oil_source", "animal_derived"],
+
+    # Oils and fats
+    "vegetable fat": ["fat_source", "plant_derived"],
+    "palm olein": ["oil_source", "plant_derived", "fat_source"],
+    "hydrogenated vegetable fat": ["fat_source", "plant_derived"],
+    "hydrogenated vegetable oil": ["oil_source", "fat_source", "plant_derived"],
+    "palm fat": ["fat_source", "oil_source", "plant_derived"],
+    "corn oil": ["oil_source", "plant_derived", "fat_source"],
+    "rapeseed oil": ["oil_source", "plant_derived", "fat_source"],
+    "non-hydrogenated vegetable fat": ["fat_source", "plant_derived"],
+    "palm oil fraction": ["oil_source", "fat_source", "plant_derived"],
+    "interesterified vegetable fat": ["fat_source", "plant_derived"],
+
+    # Food ingredients — produce, etc.
+    "chili": ["spice", "vegetable_derived", "flavoring"],
+    "chili powder": ["spice", "vegetable_derived", "flavoring"],
+    "dehydrated vegetables": ["vegetable_derived"],
+    "dehydrated potatoes": ["vegetable_derived", "carbohydrate_source"],
+    "cabbage": ["vegetable_derived"],
+    "chives": ["vegetable_derived", "flavoring"],
+    "potatoes": ["vegetable_derived", "carbohydrate_source"],
+    "nata de coco": ["plant_derived", "fermented", "fiber"],
+    "enzymes": ["enzyme"],
+    "fish sauce": ["animal_derived", "fermented", "flavor_enhancer"],
+    "caramel iv": ["colorant", "food_additive"],
+    "caramel colour": ["colorant", "food_additive"],
+    "beet red": ["colorant", "vegetable_derived", "food_additive"],
+    "rosemary extract": ["antioxidant", "spice", "plant_derived"],
+    "strawberry": ["fruit_derived", "flavoring"],
+    "pineapple": ["fruit_derived", "flavoring", "sweetener"],
+    "raisins": ["fruit_derived", "sweetener"],
+    "cherries": ["fruit_derived", "flavoring"],
+    "orange juice concentrate": ["fruit_derived", "flavoring", "sweetener"],
+    "tea": ["plant_derived", "flavoring"],
+    "black tea": ["plant_derived", "flavoring"],
+    "green tea extract": ["antioxidant", "plant_derived", "flavoring"],
+
+    # More spices and seasonings
+    "ginger": ["spice", "plant_derived", "flavoring"],
+    "clove": ["spice", "plant_derived", "flavoring"],
+    "nutmeg": ["spice", "plant_derived", "flavoring"],
+    "cumin": ["spice", "plant_derived", "flavoring"],
+    "coriander": ["spice", "plant_derived", "flavoring"],
+    "turmeric": ["spice", "colorant", "plant_derived"],
+    "red pepper": ["spice", "vegetable_derived", "flavoring"],
+    "red pepper flakes": ["spice", "vegetable_derived", "flavoring"],
+    "white pepper": ["spice", "plant_derived", "flavoring"],
+    "bay leaf": ["spice", "plant_derived", "flavoring"],
+
+    # Additional common ingredients
+    "modified food starch": ["thickener", "carbohydrate_source", "food_additive"],
+    "cellulose gum": ["thickener", "stabilizer", "fiber"],
+    "potato": ["vegetable_derived", "carbohydrate_source"],
+    "sweet potato": ["vegetable_derived", "carbohydrate_source"],
+    "coconut milk": ["plant_derived", "fat_source", "flavoring"],
+    "coconut cream": ["plant_derived", "fat_source", "flavoring"],
+    "coconut water": ["plant_derived", "mineral"],
+    "wheat starch": ["wheat_derivative", "carbohydrate_source", "thickener"],
+    "corn syrup solids": ["sweetener", "carbohydrate_source", "added_sugar"],
+    "palm kernel stearin": ["fat_source", "oil_source", "plant_derived"],
+    "milk protein concentrate": ["protein_source", "milk_derivative", "animal_derived"],
+    "milk solids": ["milk_derivative", "animal_derived"],
+    "skim milk powder": ["milk_derivative", "animal_derived"],
+    "whole milk powder": ["milk_derivative", "animal_derived"],
+    "buttermilk": ["milk_derivative", "animal_derived", "fermented"],
+    "sweetened condensed milk": ["milk_derivative", "sweetener", "added_sugar"],
+    "evaporated milk": ["milk_derivative", "animal_derived"],
+    "whipped cream": ["milk_derivative", "fat_source", "animal_derived"],
+    "mono -": ["emulsifier", "food_additive"],  # truncated "mono- and diglycerides"
+    "dextrose monohydrate": ["sweetener", "added_sugar", "carbohydrate_source"],
+    "milk chocolate": ["flavoring", "sweetener", "milk_derivative", "fat_source"],
+    "white chocolate": ["flavoring", "sweetener", "fat_source"],
+
+    # Fruit-derived
+    "orange juice": ["fruit_derived", "flavoring", "sweetener"],
+    "lemon juice concentrate": ["fruit_derived", "acidulant", "flavoring"],
+    "apple juice concentrate": ["fruit_derived", "sweetener", "flavoring"],
+    "grape juice": ["fruit_derived", "sweetener", "flavoring"],
+    "cranberry": ["fruit_derived", "flavoring"],
+    "blueberry": ["fruit_derived", "flavoring"],
+    "banana": ["fruit_derived", "flavoring", "sweetener"],
+    "mango": ["fruit_derived", "flavoring", "sweetener"],
+    "papaya": ["fruit_derived", "flavoring"],
+    "lychee": ["fruit_derived", "flavoring", "sweetener"],
 }
 
 # Separator pattern for ingredient list parsing (compiled once at module load)
@@ -413,6 +617,135 @@ def _compile_patterns():
     pass
 
 
+# Compiled patterns for E-number, FDC color, and INS code matching
+_ENUMBER_PATTERN = re.compile(r'^e([0-9]{3,4})$')
+_FDC_COLOR_PATTERN = re.compile(
+    r'^fd&c\s+(red|yellow|blue|green)\s+(no\.?\s*)?[0-9]+$',
+    re.IGNORECASE
+)
+_INS_PATTERN = re.compile(r'^ins\s+([0-9]{3,4})$', re.IGNORECASE)
+
+
+def _normalize_plural(ingredient: str) -> str:
+    """Strip trailing 's' from known functional-role words for lookup.
+
+    Handles common plural forms of additive/functional terms that map directly
+    to singular keys. Does NOT normalize words whose singular form has a
+    different semantic meaning (e.g., 'peanuts', 'eggs', 'spices', 'oats').
+
+    Args:
+        ingredient: Lowercased ingredient string.
+
+    Returns:
+        Normalized ingredient string (plural → singular where applicable).
+    """
+    # Words that should NOT be normalized (keep plural form)
+    _no_normalize = {
+        "peanuts", "almonds", "cashews", "walnuts", "hazelnuts",
+        "pecans", "peanuts", "eggs", "spices", "oats", "cultures",
+        "probiotics", "vitamins",
+    }
+
+    if ingredient in _no_normalize:
+        return ingredient
+
+    # Apply plural → singular for known functional terms
+    _plural_map = {
+        "emulsifiers": "emulsifier",
+        "stabilizers": "stabilizer",
+        "thickeners": "thickener",
+        "preservatives": "preservative",
+        "acidulants": "acidulant",
+        "sweeteners": "sweetener",
+        "flavorings": "flavoring",
+        "flavourings": "flavoring",
+        "seasonings": "seasoning",
+        "colorants": "colorant",
+        "humectants": "humectant",
+        "enzymes": "enzyme",
+        "gelling agents": "gelling agent",
+        "raising agents": "raising agent",
+        "leavening agents": "leavening agent",
+        "colors": "colorant",
+        "colours": "colorant",
+        "flavours": "flavoring",
+        "flavors": "flavoring",
+        "minerals": "mineral",
+        "sweetener": "sweetener",
+        "antioxidants": "antioxidant",
+    }
+
+    return _plural_map.get(ingredient, ingredient)
+
+
+# E-number range → category mapping
+_ENUMBER_RANGES = [
+    (100, 199, ["colorant", "food_additive"]),
+    (200, 299, ["preservative", "food_additive"]),
+    (300, 399, ["antioxidant", "food_additive"]),
+    (400, 499, ["thickener", "stabilizer", "emulsifier", "food_additive"]),
+    (500, 599, ["acidulant", "food_additive", "mineral"]),
+    (600, 699, ["flavor_enhancer", "food_additive"]),
+    (900, 999, ["sweetener", "food_additive"]),
+    (1000, 1599, ["food_additive"]),
+]
+
+
+def _match_enumber(ingredient: str) -> Optional[List[str]]:
+    """Check if ingredient is an E-number and return corresponding categories.
+
+    Args:
+        ingredient: Lowercased, stripped ingredient string.
+
+    Returns:
+        List of categories if matched, None otherwise.
+    """
+    m = _ENUMBER_PATTERN.match(ingredient)
+    if not m:
+        return None
+    num = int(m.group(1))
+    for lo, hi, cats in _ENUMBER_RANGES:
+        if lo <= num <= hi:
+            return list(cats)
+    return ["food_additive"]
+
+
+def _match_fdc_color(ingredient: str) -> Optional[List[str]]:
+    """Check if ingredient is an FDC color name and return category.
+
+    Args:
+        ingredient: Lowercased, stripped ingredient string.
+
+    Returns:
+        ['colorant', 'food_additive'] if matched, None otherwise.
+    """
+    if _FDC_COLOR_PATTERN.match(ingredient):
+        return ["colorant", "food_additive"]
+    return None
+
+
+def _match_ins_code(ingredient: str) -> Optional[List[str]]:
+    """Check if ingredient is an INS code and return category.
+
+    INS codes correspond to E-number ranges (e.g., INS 330 == E330 == citric acid),
+    so the same range-based mapping is used.
+
+    Args:
+        ingredient: Lowercased, stripped ingredient string.
+
+    Returns:
+        List of categories if matched, None otherwise.
+    """
+    m = _INS_PATTERN.match(ingredient)
+    if not m:
+        return None
+    num = int(m.group(1))
+    for lo, hi, cats in _ENUMBER_RANGES:
+        if lo <= num <= hi:
+            return list(cats)
+    return ["food_additive"]
+
+
 def ingredient_to_categories(
     ingredient: str,
     categories: Optional[List[str]] = None,
@@ -420,6 +753,8 @@ def ingredient_to_categories(
     """Map a single ingredient to its semantic categories.
 
     Supports both exact lookup (faster) and substring matching (fallback).
+    Also normalizes plural forms of functional terms and recognizes
+    E-numbers, FDC colors, and INS codes.
 
     Args:
         ingredient: An individual ingredient term (e.g., "MSG", "soy lecithin").
@@ -438,7 +773,27 @@ def ingredient_to_categories(
     if ingredient_lower in INGREDIENT_SEMANTIC_MAP:
         return INGREDIENT_SEMANTIC_MAP[ingredient_lower].copy()
 
-    # 2. Try partial match — check if any known ingredient is a substring
+    # 2. Try plural-normalized match (emulsifiers → emulsifier)
+    normalized = _normalize_plural(ingredient_lower)
+    if normalized != ingredient_lower and normalized in INGREDIENT_SEMANTIC_MAP:
+        return INGREDIENT_SEMANTIC_MAP[normalized].copy()
+
+    # 3. Try E-number match (e330 → acidulant)
+    enumber_cats = _match_enumber(ingredient_lower)
+    if enumber_cats:
+        return enumber_cats
+
+    # 4. Try FDC color match (fd&c red no. 40 → colorant)
+    fdc_cats = _match_fdc_color(ingredient_lower)
+    if fdc_cats:
+        return fdc_cats
+
+    # 5. Try INS code match
+    ins_cats = _match_ins_code(ingredient_lower)
+    if ins_cats:
+        return ins_cats
+
+    # 6. Try partial match — check if any known ingredient is a substring
     matches = []
     for known_ing, cats in INGREDIENT_SEMANTIC_MAP.items():
         if known_ing in ingredient_lower or ingredient_lower in known_ing:
@@ -558,7 +913,7 @@ def get_category_groups() -> Dict[str, List[str]]:
         ],
         "flavor_and_sweeteners": [
             "flavor_enhancer", "sweetener", "sugar", "added_sugar",
-            "flavoring", "spice", "herb", "salt", "yeast",
+            "flavoring", "spice", "salt", "yeast",
         ],
         "functional_ingredients": [
             "emulsifier", "stabilizer", "thickener", "gelling_agent",
@@ -569,7 +924,7 @@ def get_category_groups() -> Dict[str, List[str]]:
         ],
         "origin_and_derivation": [
             "animal_derived", "plant_derived", "milk_derivative", "egg_derivative",
-            "soy_derivative", "wheat_derivative", "fermented", "smoked", "cured",
+            "soy_derivative", "wheat_derivative", "fermented", "cured",
         ],
         "micronutrients": ["vitamin", "mineral"],
         "biological": ["enzyme", "culture"],

@@ -35,15 +35,12 @@
     "humectant",
     "flavoring",
     "spice",
-    "herb",
     "fruit_derived",
     "vegetable_derived",
     "fermented",
-    "smoked",
     "cured",
     "enzyme",
     "culture",
-    "prebiotic",
     "salt_substitute"
   ],
   "examples": {
@@ -65,10 +62,10 @@
   },
   "category_groups": {
     "additives_and_preservatives": ["food_additive", "preservative", "antioxidant", "acidulant", "colorant"],
-    "flavor_and_sweeteners": ["flavor_enhancer", "sweetener", "sugar", "added_sugar", "flavoring", "spice", "herb", "salt", "yeast"],
+    "flavor_and_sweeteners": ["flavor_enhancer", "sweetener", "sugar", "added_sugar", "flavoring", "spice", "salt", "yeast"],
     "functional_ingredients": ["emulsifier", "stabilizer", "thickener", "gelling_agent", "leavening_agent", "humectant"],
     "macronutrients": ["fat_source", "oil_source", "protein_source", "carbohydrate_source", "fiber"],
-    "origin_and_derivation": ["animal_derived", "plant_derived", "milk_derivative", "egg_derivative", "soy_derivative", "wheat_derivative", "fermented", "smoked", "cured"],
+    "origin_and_derivation": ["animal_derived", "plant_derived", "milk_derivative", "egg_derivative", "soy_derivative", "wheat_derivative", "fermented", "cured"],
     "micronutrients": ["vitamin", "mineral"],
     "biological": ["enzyme", "culture"]
   }

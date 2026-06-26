@@ -87,29 +87,72 @@ def load_hybrid_config(config_path: str = "../models/hybrid_config.json") -> Dic
     return config
 
 
-def compute_class_weights(labels: np.ndarray) -> torch.Tensor:
+def compute_class_weights(labels: np.ndarray, max_weight: float = 10.0) -> torch.Tensor:
     """
     Compute class weights for imbalanced multi-label classification.
+
+    Uses inverse-frequency weighting with log1p smoothing.
+    Weights are normalized to mean=1 and capped to prevent extreme values
+    that can cause training instability (loss explosion in epoch 1).
 
     Accepts both numpy arrays and torch tensors — converts to numpy
     internally for consistent computation.
 
     Args:
         labels: Array of binary labels (n_samples, n_classes)
+        max_weight: Cap class weights at this value (default: 10.0).
+                    Set to None to disable capping.
 
     Returns:
         Tensor of class weights normalized to mean=1
+
+    Raises:
+        ValueError: If labels contain NaN or Inf values, or if labels is empty
     """
     # Convert torch tensor to numpy for consistent handling
     if isinstance(labels, torch.Tensor):
         labels = labels.cpu().numpy()
 
+    if labels.size == 0:
+        raise ValueError("labels array is empty — cannot compute class weights")
+
+    if not np.issubdtype(labels.dtype, np.number):
+        raise ValueError(f"labels must be numeric, got dtype={labels.dtype}")
+
+    if np.any(np.isnan(labels)):
+        raise ValueError("labels contains NaN values")
+    if np.any(np.isinf(labels)):
+        raise ValueError("labels contains Inf values")
+
+    if labels.ndim == 1:
+        labels = labels.reshape(-1, 1)
+
     pos_counts = labels.sum(axis=0)
     neg_counts = len(labels) - pos_counts
-    # Avoid division by zero
-    weights = np.log1p(neg_counts / (pos_counts + 1e-6))
+    n_classes = labels.shape[1]
+
+    # Handle edge case: all-positive or all-negative columns
+    # For a column with 0 positives: give max_weight (rare class)
+    # For a column with all positives: give max_weight (rare negative case)
+    weights = np.zeros(n_classes, dtype=np.float32)
+    for i in range(n_classes):
+        if pos_counts[i] == 0:
+            # No positive samples at all — maximum weight
+            weights[i] = max_weight if max_weight is not None else 10.0
+        elif neg_counts[i] == 0:
+            # All positive — rare but possible
+            weights[i] = max_weight if max_weight is not None else 10.0
+        else:
+            # Standard inverse frequency with log smoothing
+            weights[i] = np.log1p(neg_counts[i] / pos_counts[i])
+
     # Normalize to mean=1 for stable training
-    weights = weights / weights.mean()
+    weights = weights / (weights.mean() + 1e-8)
+
+    # Cap maximum weight to prevent loss explosion
+    if max_weight is not None:
+        weights = np.clip(weights, None, max_weight)
+
     return torch.tensor(weights, dtype=torch.float)
 
 

@@ -29,6 +29,7 @@ Usage Examples:
 """
 
 import numpy as np
+import pandas as pd
 from sklearn.metrics import classification_report, f1_score, precision_score, recall_score, multilabel_confusion_matrix
 from typing import List, Tuple, Dict, Any, Optional
 import matplotlib.pyplot as plt
@@ -256,6 +257,125 @@ def jaccard(set1: set, set2: set) -> float:
     if not set1 or not set2:
         return 0.0
     return len(set1 & set2) / len(set1 | set2)
+
+
+def evaluate_rule_vs_official(df: pd.DataFrame, allergen_list: List[str] = None,
+                              prefix: str = "Rule vs Official Tags") -> Dict[str, Any]:
+    """
+    Evaluate rule-based allergen detection against official OFF allergen tags.
+
+    Compares the ``detected_allergens`` column (rule-based) against the
+    ``official_allergens_mapped`` column (parsed from Open Food Facts tags).
+    Reports exact agreement, per-class precision/recall/F1, and aggregate metrics.
+
+    Args:
+        df: DataFrame with at least ``detected_allergens``,
+            ``official_allergens_mapped``, and optionally ``ingredients_text_en``
+            columns.  The two allergen columns should contain lists of string
+            keys (e.g. ``["milk", "wheat"]``).
+        allergen_list: Ordered list of all allergen keys.  If not provided,
+            inferred from the union of detected and official values.
+        prefix: Label printed before the evaluation report.
+
+    Returns:
+        Dictionary with keys:
+        - ``exact_agreement``: fraction of rows with identical sets
+        - ``subset_agreement``: fraction where detected ⊆ official
+        - ``superset_agreement``: fraction where detected ⊇ official
+        - ``avg_jaccard``: mean Jaccard similarity across all rows
+        - ``per_class``: dict mapping allergen → {precision, recall, f1}
+        - ``n_samples``: number of rows evaluated
+    """
+    # Deduplicate columns (rename can create duplicates if the target
+    # column name already exists in the DataFrame)
+    df = df.loc[:, ~df.columns.duplicated(keep='first')]
+
+    # Normalize string-representation columns to actual lists
+    for col in ["detected_allergens", "official_allergens_mapped"]:
+        if col in df.columns:
+            from .data_utils import normalize_list_column
+            df[col] = normalize_list_column(df[col])
+
+    if allergen_list is None:
+        all_vals = set()
+        for row in df["detected_allergens"]:
+            if isinstance(row, list):
+                all_vals.update(row)
+        for row in df["official_allergens_mapped"]:
+            if isinstance(row, list):
+                all_vals.update(row)
+        allergen_list = sorted(all_vals)
+
+    # Build binary matrices
+    def labels_to_binary(label_lists, classes):
+        n = len(label_lists)
+        m = np.zeros((n, len(classes)), dtype=int)
+        for i, lst in enumerate(label_lists):
+            if isinstance(lst, list):
+                for item in lst:
+                    if item in classes:
+                        m[i, classes.index(item)] = 1
+        return m
+
+    y_true = labels_to_binary(df["official_allergens_mapped"].tolist(), allergen_list)
+    y_pred = labels_to_binary(df["detected_allergens"].tolist(), allergen_list)
+
+    # Exact agreement metrics
+    detected_sets = df["detected_allergens"].apply(lambda x: set(x) if isinstance(x, list) else set())
+    official_sets = df["official_allergens_mapped"].apply(lambda x: set(x) if isinstance(x, list) else set())
+
+    exact_agreement = (detected_sets == official_sets).mean()
+    subset_agreement = (detected_sets <= official_sets).mean()
+    superset_agreement = (detected_sets >= official_sets).mean()
+    avg_jac = df.apply(
+        lambda row: jaccard(
+            set(row["detected_allergens"]) if isinstance(row["detected_allergens"], list) else set(),
+            set(row["official_allergens_mapped"]) if isinstance(row["official_allergens_mapped"], list) else set()
+        ), axis=1
+    ).mean()
+
+    # Per-class metrics
+    per_class = compute_per_class_metrics(y_true, y_pred, allergen_list)
+
+    print(f"\n{'=' * 60}")
+    print(f"  {prefix}")
+    print(f"{'=' * 60}")
+    print(f"  Samples evaluated: {len(df)}")
+    print(f"  Exact match (strict):        {exact_agreement:.2%}")
+    print(f"  Detected ⊆ official (no FP): {subset_agreement:.2%}")
+    print(f"  Detected ⊇ official (no FN): {superset_agreement:.2%}")
+    print(f"  Avg Jaccard:                 {avg_jac:.2%}")
+    print(f"\n  Per-class metrics:")
+    print(f"  {'Allergen':<12s} {'Precision':>10s} {'Recall':>10s} {'F1':>10s}")
+    print(f"  {'─' * 44}")
+    for allergen in allergen_list:
+        m = per_class[allergen]
+        print(f"  {allergen:<12s} {m['precision']:>9.2%} {m['recall']:>9.2%} {m['f1']:>9.2%}")
+    print()
+
+    return {
+        "exact_agreement": float(exact_agreement),
+        "subset_agreement": float(subset_agreement),
+        "superset_agreement": float(superset_agreement),
+        "avg_jaccard": float(avg_jac),
+        "per_class": per_class,
+        "n_samples": len(df),
+    }
+
+
+__all__ = [
+    'print_classification_report',
+    'print_per_class_metrics',
+    'find_best_thresholds',
+    'apply_thresholds',
+    'compute_per_class_metrics',
+    'compute_multilabel_confusion_matrix',
+    'plot_confusion_matrices',
+    'error_analysis',
+    'binary_to_label_list',
+    'jaccard',
+    'evaluate_rule_vs_official',
+]
 
 # Export commonly used evaluation functions
 __all__ = [
