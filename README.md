@@ -101,6 +101,37 @@ Each notebook represents a stage in the end-to-end workflow. Run them sequential
 - Evaluates hybrid performance on the held‑out test set
 - Includes Filipino-aware rule matching merged into `COMPILED_RULES`
 
+### Deliverable 4 — Deployment (Notebooks 09–10)
+
+### 9. Model Export (`09_model_export.ipynb`)
+- Converts trained PyTorch models to ONNX format
+- Optimizes models for mobile deployment
+- Includes quantization and pruning steps
+- Validates exported model accuracy
+
+### 10. Mobile Benchmark (`10_mobile_benchmark.ipynb`)
+- Benchmarks model performance on mobile devices
+- Measures latency, memory footprint, and battery impact
+- Compares different model optimization strategies
+- Validates mobile deployment viability
+
+### Deliverable 5 — Advanced Optimization (Notebooks 11–12)
+
+### 11. Dataset Augmentation (`11_dataset_augmentation.ipynb`)
+- Implements targeted data augmentation strategies
+- Focuses on under-represented allergen classes
+- Generates synthetic training examples
+- Evaluates augmentation impact on model performance
+
+### 12. Tree Nuts Optimization (`12_tree_nuts_optimization.ipynb`)
+- **Specialized optimization for tree nuts detection**
+- Comprehensive data augmentation: increases tree nuts from 15 to 495 positive samples
+- Advanced loss functions: ASL (Asymmetric Loss), Focal Loss, Set-size regularization
+- Per-allergen threshold optimization for maximum F1
+- Hybrid detection with rule-priority mode for tree nuts
+- Counter-example generation for false-positive reduction
+- Results: **Tree nuts F1 improved from 0.93 → 0.9615 (ML) / 0.8571 (hybrid)**
+
 ---
 
 ## 🚀 Quick Start
@@ -145,6 +176,8 @@ Then open:
 8. `08_hybrid_evaluation.ipynb` *(Deliverable 3 — Hybrid Detection)*
 9. `09_model_export.ipynb` *(Deliverable 4 — Deployment)*
 10. `10_mobile_benchmark.ipynb`
+11. `11_dataset_augmentation.ipynb` *(Deliverable 5 — Advanced Optimization)*
+12. `12_tree_nuts_optimization.ipynb`
 
 Each notebook contains executable cells with clear markdown explanations.
 
@@ -221,20 +254,29 @@ preds, probs = predict_ml(texts, thresholds=thresholds)
 ---
 
 ## 📈 Model Performance
+
+### Baseline Model (Notebook 07)
 | Metric | Milk | Eggs | Peanuts | Tree Nuts | Soy | Wheat | Fish | Shellfish |
 |--------|------|------|---------|-----------|-----|-------|------|-----------|
 | Precision | 0.97 | 1.00 | 0.80 | 0.91 | 0.93 | 1.00 | 1.00 | 1.00 |
 | Recall | 0.92 | 0.90 | 1.00 | 0.96 | 1.00 | 0.98 | 1.00 | 0.60 |
 | F1‑Score | 0.95 | 0.95 | 0.89 | 0.93 | 0.96 | 0.99 | 1.00 | 0.75 |
 
+### Tree Nuts Optimized Model (Notebook 12)
+| Metric | Milk | Eggs | Peanuts | Tree Nuts | Soy | Wheat | Fish | Shellfish |
+|--------|------|------|---------|-----------|-----|-------|------|-----------|
+| Precision | 1.00 | 1.00 | 0.99 | 0.93 | 0.99 | 1.00 | 0.98 | 1.00 |
+| Recall | 0.98 | 1.00 | 1.00 | 1.00 | 0.98 | 1.00 | 0.98 | 1.00 |
+| F1‑Score | 0.99 | 1.00 | 0.99 | 0.96 | 0.98 | 1.00 | 0.98 | 1.00 |
+
 - **Framework:** Hugging Face `transformers` + `pytorch`
 - **Base Model:** `google/mobilebert-uncased`
-- **Loss:** Weighted Binary Cross‑Entropy (inverse class frequency)
+- **Loss:** Weighted Binary Cross‑Entropy (inverse class frequency) for baseline, Asymmetric Loss for optimized
 - **Optimizer:** AdamW with linear warm‑up and cosine decay
-- **Training Time:** ~25 min on a single RTX 3060 (6 GB VRAM)
+- **Training Time:** ~25 min on a single RTX 3060 (6 GB VRAM) for baseline
 - **Inference Latency:** ~12 ms per ingredient on CPU
 
-*Numbers are from the test set evaluation in `07_allergen_training.ipynb`.*
+*Numbers are from the test set evaluation in `07_allergen_training.ipynb` and `12_tree_nuts_optimization.ipynb`.*
 
 ---
 

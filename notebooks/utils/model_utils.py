@@ -16,9 +16,10 @@ Usage:
 import json
 import numpy as np
 import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModel
 from typing import List, Tuple, Optional, Dict, Any
 import os
+import warnings
 from sklearn.metrics import f1_score
 from .text_processing import rule_match, get_allergen_list
 
@@ -308,6 +309,252 @@ def apply_thresholds(probs: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
     """
     return (probs >= thresholds).astype(int)
 
+
+# ═══════════════════════════════════════════════
+# ASL, Calibration & Set-Size Regularization
+# ═══════════════════════════════════════════════
+
+class AsymmetricLoss(torch.nn.Module):
+    """Asymmetric Loss (ASL) for multi-label classification.
+
+    Down-weights easy negatives more aggressively than easy positives,
+    directly addressing the false-positive over-prediction problem.
+
+    Reference:
+        "Asymmetric Loss For Multi-Label Classification"
+        Ridnik et al., 2021  https://arxiv.org/abs/2009.14119
+
+    Args:
+        gamma_plus:  Focusing for positives (default 0.0 — off).
+        gamma_minus: Focusing for negatives (default 2.0).
+        pos_weight:  Per-class positive-weight tensor (same semantics
+                     as BCEWithLogitsLoss ``pos_weight``).
+        reduction:   ``'mean'`` (default) or ``'sum'``.
+    """
+
+    def __init__(self, gamma_plus: float = 0.0, gamma_minus: float = 2.0,
+                 pos_weight: Optional[torch.Tensor] = None,
+                 reduction: str = 'mean'):
+        super().__init__()
+        self.gamma_plus = gamma_plus
+        self.gamma_minus = gamma_minus
+        self.pos_weight = pos_weight
+        self.reduction = reduction
+
+    def forward(self, logits: torch.Tensor,
+                targets: torch.Tensor) -> torch.Tensor:
+        probs = torch.sigmoid(logits)
+        targets = targets.float()
+
+        # Asymmetric focusing weights
+        #   positives: (1 - p)^γ₊ — hard positives have low p
+        #   negatives: p^γ₋       — hard negatives have high p
+        w_pos = (1.0 - probs) ** self.gamma_plus
+        w_neg = probs ** self.gamma_minus
+        loss_weight = targets * w_pos + (1.0 - targets) * w_neg
+
+        # Class weights (per-class importance — e.g. inverse frequency)
+        if self.pos_weight is not None:
+            pw = self.pos_weight.view(1, -1) if self.pos_weight.dim() == 1 else self.pos_weight  # type: ignore[union-attr]
+            loss_weight = loss_weight * (targets * pw + (1.0 - targets))
+
+        # Detach loss_weight to prevent gradient flow through the focusing
+        # weights — the weight tensor passed to BCEWithLogitsLoss must not
+        # have requires_grad=True.
+        return torch.nn.functional.binary_cross_entropy_with_logits(
+            logits, targets, weight=loss_weight.detach(), reduction=self.reduction)
+
+
+def label_count_regularization(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    alpha: float = 0.05,
+    asymmetric: bool = True,
+) -> torch.Tensor:
+    """Penalise deviations from the expected number of positive labels.
+
+    When *asymmetric* is ``True`` (default) only over-prediction is penalised
+    — the model can always predict *fewer* labels without cost.  This directly
+    targets false-positive inflation.
+
+    Args:
+        logits:     Raw model logits ``(batch, n_classes)``.
+        targets:    Binary labels ``(batch, n_classes)``.
+        alpha:      Regularisation strength.
+        asymmetric: If ``True`` only penalise over-prediction (default).
+
+    Returns:
+        Scalar regularisation term (detached targets so gradients only flow
+        through the prediction side).
+    """
+    probs = torch.sigmoid(logits)
+    pred_count = probs.sum(dim=1)
+    true_count = targets.float().sum(dim=1)
+
+    diff = pred_count - true_count.detach()
+    if asymmetric:
+        diff = diff * (diff > 0).float()  # only over-prediction hurts
+    return alpha * (diff ** 2).mean()
+
+
+class TemperatureScaling:
+    """Post-hoc temperature scaling for better probability calibration.
+
+    Learns a single scalar temperature T on a validation set.  After scaling,
+    probabilities become ``σ(logit / T)``.  T < 1 sharpens predictions, T > 1
+    makes them more uniform.
+
+    Usage::
+
+        scaler = TemperatureScaling()
+        t = scaler.calibrate(val_logits, val_labels)
+        calibrated = scaler(test_logits)
+    """
+
+    def __init__(self, init_temp: float = 1.0):
+        self.temperature = float(init_temp)
+
+    def calibrate(self, logits: np.ndarray, labels: np.ndarray,
+                  max_iter: int = 100) -> float:
+        """Learn optimal temperature by minimising BCE NLL on *logits*."""
+        logits_t = torch.tensor(logits, dtype=torch.float)
+        labels_t = torch.tensor(labels, dtype=torch.float)
+        temp = torch.nn.Parameter(torch.tensor(self.temperature))
+        opt = torch.optim.LBFGS([temp], lr=0.01, max_iter=max_iter)
+        loss_fn = torch.nn.BCEWithLogitsLoss()
+
+        def closure():
+            opt.zero_grad()
+            loss = loss_fn(logits_t / temp.clamp(min=1e-6), labels_t)
+            loss.backward()
+            return loss
+
+        opt.step(closure)
+        self.temperature = float(temp.item())
+        return self.temperature
+
+    def __call__(self, logits: np.ndarray) -> np.ndarray:
+        """Apply temperature scaling to numpy logits."""
+        return logits / max(self.temperature, 1e-6)
+
+    def scale_logits(self, logits: torch.Tensor) -> torch.Tensor:
+        """Apply temperature scaling to a torch tensor."""
+        return logits / max(self.temperature, 1e-6)
+
+
+class ClassifierChainMobileBERT(torch.nn.Module):
+    """MobileBERT with chained classifier heads for multi-label classification.
+
+    Each head k receives the [CLS] embedding concatenated with sigmoid
+    predictions from heads 0..k-1.  Teacher forcing (true labels) feeds
+    previous-head signals during training; self-prediction is used at eval.
+
+    Args:
+        backbone_name: HuggingFace model name (e.g. ``"google/mobilebert-uncased"``).
+        n_classes: Number of labels (8 for BIG8 allergens).
+        chain_order: List of allergen name strings in the order heads
+            should predict.  Determines label reordering indices.
+        hidden_size: BERT hidden dimension (default 512 for MobileBERT).
+    """
+
+    def __init__(
+        self,
+        backbone_name: str = "google/mobilebert-uncased",
+        n_classes: int = 8,
+        chain_order: Optional[List[str]] = None,
+        hidden_size: int = 512,
+    ):
+        super().__init__()
+        self.backbone = AutoModel.from_pretrained(backbone_name)
+        self.hidden_size = hidden_size
+        self.n_classes = n_classes
+        self.chain_order = chain_order or list(range(n_classes))
+
+        # Indices for label reordering
+        canonical = get_allergen_list()
+        if isinstance(self.chain_order[0], str):
+            self.chain_order_indices = [canonical.index(name) for name in self.chain_order]
+        else:
+            self.chain_order_indices = list(self.chain_order)
+        self.inverse_order_indices = [0] * n_classes
+        for chain_idx, canon_idx in enumerate(self.chain_order_indices):
+            self.inverse_order_indices[canon_idx] = chain_idx
+        self.register_buffer('_chain_ord', torch.tensor(self.chain_order_indices, dtype=torch.long))
+        self.register_buffer('_inv_ord', torch.tensor(self.inverse_order_indices, dtype=torch.long))
+
+        self.chain_heads = torch.nn.ModuleList([
+            torch.nn.Linear(hidden_size + i, 1) for i in range(n_classes)
+        ])
+
+    def forward(self, input_ids, attention_mask=None, prev_preds=None):
+        outputs = self.backbone(input_ids, attention_mask=attention_mask)
+        cls = outputs.last_hidden_state[:, 0, :]
+
+        if prev_preds is not None:
+            prev_chain = prev_preds[:, self._chain_ord]
+        else:
+            prev_chain = None
+
+        logits = []
+        h = cls
+        for i in range(self.n_classes):
+            logit = self.chain_heads[i](h)
+            logits.append(logit)
+            if i < self.n_classes - 1:
+                if self.training and prev_chain is not None:
+                    pred = prev_chain[:, i:i + 1].float()
+                else:
+                    pred = torch.sigmoid(logit).detach()
+                h = torch.cat([h, pred], dim=-1)
+
+        return torch.cat(logits, dim=-1)
+
+    def reorder_logits_to_canonical(self, logits):
+        """Convert logits from chain order back to canonical allergen order."""
+        return logits[:, self._inv_ord]
+
+    @classmethod
+    def from_pretrained(cls, model_path: str, device=None):
+        order_path = os.path.join(model_path, "chain_order.json")
+        if not os.path.exists(order_path):
+            raise FileNotFoundError(
+                f"No chain_order.json found in {model_path}."
+            )
+        with open(order_path) as f:
+            order = json.load(f)
+
+        # Optional sidecar config so the loader uses the backbone / class count
+        # the model was actually trained with instead of hardcoded defaults.
+        cfg = {}
+        cfg_path = os.path.join(model_path, "model_config.json")
+        if os.path.exists(cfg_path):
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+        backbone = cfg.get("backbone_name", "google/mobilebert-uncased")
+        n_classes = cfg.get("n_classes")
+
+        state = torch.load(
+            os.path.join(model_path, "pytorch_model.bin"),
+            map_location=device or ("cuda" if torch.cuda.is_available() else "cpu"),
+        )
+        # Backward compatibility: if no model_config.json, infer the number of
+        # classes from the saved chain heads.
+        if n_classes is None:
+            n_heads = sum(1 for k in state if k.startswith("chain_heads.")
+                          and k.endswith(".weight"))
+            n_classes = n_heads or 8
+
+        model = cls(backbone_name=backbone, n_classes=n_classes, chain_order=order)
+        result = model.load_state_dict(state, strict=True)
+        if result.missing_keys or result.unexpected_keys:
+            warnings.warn(
+                "ClassifierChainMobileBERT state dict did not match the "
+                f"architecture exactly: missing={result.missing_keys}, "
+                f"unexpected={result.unexpected_keys}"
+            )
+        return model
+
+
 # Re-export commonly used functions
 __all__ = [
     'load_model_and_tokenizer',
@@ -317,4 +564,8 @@ __all__ = [
     'predict_ml',
     'hybrid_predict',
     'apply_thresholds',
+    'AsymmetricLoss',
+    'label_count_regularization',
+    'TemperatureScaling',
+    'ClassifierChainMobileBERT',
 ]

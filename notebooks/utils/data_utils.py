@@ -20,6 +20,9 @@ __all__ = [
     'parse_label_column',
     'create_stratified_splits',
     'augment_dataframe',
+    'augment_targeted',
+    'create_counter_examples',
+    'clean_training_data',
     'labels_to_binary',
     'safe_parse_list',
     'save_metadata',
@@ -70,19 +73,26 @@ _DEFAULT_SYNONYMS: Dict[str, List[str]] = {
 }
 
 
-def _synonym_replacement(text: str, synonyms: Dict[str, List[str]], p: float = 0.3) -> str:
+def _synonym_replacement(text: str, synonyms: Dict[str, List[str]], p: float = 0.3,
+                         rng=None) -> str:
     """Replace tokens with synonyms with probability *p*.
 
     Operates on whitespace/punctuation-delimited tokens.  If the cleaned
     token exists as a key in *synonyms* the replacement is sampled uniformly
     from the associated list; otherwise the token is kept as-is.
+
+    *rng* may be a ``numpy.random.RandomState`` (or the global
+    ``numpy.random`` module) used for sampling.  Defaults to the global RNG
+    for backward compatibility.
     """
+    if rng is None:
+        rng = np.random
     tokens = re.split(r'(\W+)', text)
     new_tokens = []
     for t in tokens:
         t_lower = t.strip().lower()
-        if t_lower in synonyms and np.random.random() < p:
-            new_tokens.append(np.random.choice(synonyms[t_lower]))
+        if t_lower in synonyms and rng.random() < p:
+            new_tokens.append(rng.choice(synonyms[t_lower]))
         else:
             new_tokens.append(t)
     return ''.join(new_tokens)
@@ -354,7 +364,9 @@ def augment_targeted(
         from .text_processing import BIG8 as _BIG8
         ALLERGEN_KEYWORDS = {k: v[:5] for k, v in _BIG8.items()}
 
-    np.random.seed(random_state)
+    # Use a local RNG so this function is reproducible via *random_state*
+    # without clobbering the caller's global numpy RNG stream.
+    rng = np.random.RandomState(random_state)
 
     # Determine which column holds the text
     text_col = 'text' if 'text' in df.columns else 'ingredients_cleaned'
@@ -372,7 +384,7 @@ def augment_targeted(
         num_copies = max(1, int(multiplier))
         for _, row in target_rows.iterrows():
             for _ in range(num_copies):
-                new_text = _synonym_replacement(row[text_col], SYNONYMS)
+                new_text = _synonym_replacement(row[text_col], SYNONYMS, rng=rng)
                 augmented_rows.append({
                     text_col: new_text,
                     'ingredients_cleaned': new_text,
@@ -387,6 +399,168 @@ def augment_targeted(
     # Concatenate original + augmented
     result = pd.concat([df, augmented_df], ignore_index=True)
     return result
+
+
+def create_counter_examples(
+    df: pd.DataFrame,
+    target_ingredients: Dict[str, List[str]],
+    ALLERGENS: List[str] = None,
+    SYNONYMS: Dict[str, List[str]] = None,
+    copies: int = 3,
+    random_state: int = 42,
+) -> pd.DataFrame:
+    """Create counter-examples targeting known false-positive trigger patterns.
+
+    For each (target_allergen, trigger_ingredients) pair, finds rows in *df*
+    where the trigger ingredient text appears but the target allergen is NOT
+    present in the label, and creates *copies* synonym-perturbed variants.
+    These explicitly teach the model that certain ingredient strings do NOT
+    imply the target allergen.
+
+    Args:
+        df: Input DataFrame with ``'ingredients_cleaned'`` (or ``'text'``) and
+            ``'labels'`` columns.
+        target_ingredients: Dict mapping allergen names to lists of ingredient
+            substrings that should *not* trigger that allergen.
+            E.g. ``{"eggs": ["whey", "whey powder"]}``.
+        ALLERGENS: List of allergen class names (loaded if None).
+        SYNONYMS: Synonym dict for the augmentation step (loaded if None).
+        copies: How many variant copies per qualifying row (default 3).
+        random_state: Seed for reproducibility.
+
+    Returns:
+        DataFrame of counter-example rows (original rows not included).
+    """
+    if ALLERGENS is None:
+        from .text_processing import get_allergen_list as _gal
+        ALLERGENS = _gal()
+
+    if SYNONYMS is None:
+        SYNONYMS = _DEFAULT_SYNONYMS
+
+    rng = np.random.RandomState(random_state)
+    text_col = 'text' if 'text' in df.columns else 'ingredients_cleaned'
+
+    counter_rows = []
+    for target_allergen, triggers in target_ingredients.items():
+        if target_allergen not in ALLERGENS:
+            continue
+        target_idx = ALLERGENS.index(target_allergen)
+
+        for _, row in df.iterrows():
+            text = (row.get('ingredients_cleaned') or row.get('text') or '').lower()
+            labels = row['labels']
+
+            # Check if any trigger substring appears in the text
+            has_trigger = any(trig.lower() in text for trig in triggers)
+            if not has_trigger:
+                continue
+
+            # Check that the target allergen is NOT in the label
+            if isinstance(labels, (list, np.ndarray)):
+                is_positive = labels[target_idx] == 1
+            else:
+                is_positive = False
+
+            if is_positive:
+                continue  # already correctly associated — skip
+
+            # Create variant copies
+            for _ in range(copies):
+                new_text = _synonym_replacement(
+                    row[text_col] if text_col in row else str(row.get('ingredients_cleaned', '')),
+                    SYNONYMS,
+                    p=0.3,
+                    rng=rng,
+                )
+                counter_rows.append({
+                    text_col: new_text,
+                    'ingredients_cleaned': new_text,
+                    'labels': labels.copy() if isinstance(labels, (list, np.ndarray)) else labels,
+                    'detected_allergens': [ALLERGENS[i] for i, v in enumerate(labels) if v == 1]
+                    if isinstance(labels, (list, np.ndarray)) else [],
+                })
+
+    return pd.DataFrame(counter_rows)
+
+
+# Known non-food / trivial-text detection patterns
+_NON_FOOD_PATTERNS: List[str] = [
+    r'butyrospermum\s+parkii',
+    r'mucopolysaccharide\s+polysulfate',
+    r'cream\s+base\b',
+]
+
+_EMPTY_TEXT_PATTERNS: List[str] = [
+    r'^exp\s+(date|dtae)',
+    r'^(use|manufacturing|manufactured|net)\s+(by|date|weight)',
+]
+
+
+def clean_training_data(df: pd.DataFrame, ALLERGENS: List[str] = None,
+                        inplace: bool = False) -> pd.DataFrame:
+    """Remove / fix known label-quality issues in the training DataFrame.
+
+    Current fixes:
+
+    1. Remove rows matching non-food patterns (hand cream, pharmaceutical).
+    2. Remove rows with trivial / empty ingredient text.
+    3. Fix *wheatflor* — when the text contains ``'wheatflor'`` and wheat
+       (index 5) is 0 in the label, flip it to 1.
+
+    Args:
+        df: Input DataFrame with ``'ingredients_cleaned'`` and ``'labels'``.
+        ALLERGENS: Allergen name list (loaded if None).
+        inplace: Whether to modify *df* in-place.
+
+    Returns:
+        Cleaned DataFrame.
+    """
+    if ALLERGENS is None:
+        from .text_processing import get_allergen_list as _gal
+        ALLERGENS = _gal()
+
+    result = df if inplace else df.copy()
+    cleaned_text = result['ingredients_cleaned'].str.lower().fillna('')
+
+    # 1. Remove non-food
+    non_food_mask = cleaned_text.str.contains(
+        '|'.join(_NON_FOOD_PATTERNS), case=False, na=False, regex=True
+    )
+    if non_food_mask.any():
+        result = result[~non_food_mask]
+
+    # 2. Remove empty / trivial entries
+    empty_mask = cleaned_text.str.contains(
+        '|'.join(_EMPTY_TEXT_PATTERNS), case=False, na=False, regex=True
+    )
+    # Also remove entries shorter than 15 chars that aren't real ingredients
+    short_mask = cleaned_text.str.len() < 15
+    result = result[~(empty_mask | short_mask)]
+
+    # 3. Fix wheatflor → wheat
+    wheat_idx = ALLERGENS.index('wheat') if 'wheat' in ALLERGENS else 5
+    # Recompute mask on current result (rows may have been removed above)
+    cur_text = result['ingredients_cleaned'].str.lower().fillna('')
+    wheatflor_mask = cur_text.str.contains(r'wheatflor', case=False, na=False)
+    # The 'detected_allergens' column is optional (e.g. train_ensemble.py
+    # builds a minimal DataFrame with only text/ingredients_cleaned/labels) —
+    # only touch it if it actually exists.
+    has_da_col = 'detected_allergens' in result.columns
+    for idx in result.index[wheatflor_mask]:
+        lbl = result.at[idx, 'labels']
+        if isinstance(lbl, (list, np.ndarray)) and len(lbl) > wheat_idx:
+            if lbl[wheat_idx] == 0:
+                lbl[wheat_idx] = 1
+                result.at[idx, 'labels'] = lbl
+                # Also update detected_allergens string (if the column exists)
+                if has_da_col:
+                    da = result.at[idx, 'detected_allergens']
+                    if isinstance(da, list) and 'wheat' not in da:
+                        da.append('wheat')
+                        result.at[idx, 'detected_allergens'] = da
+
+    return result.reset_index(drop=True)
 
 
 def labels_to_binary(label_list: List[List[str]], classes: List[str]) -> np.ndarray:
