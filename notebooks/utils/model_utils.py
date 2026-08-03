@@ -134,14 +134,38 @@ def compute_class_weights(labels: np.ndarray, max_weight: float = 10.0) -> torch
     return torch.tensor(weights, dtype=torch.float)
 
 
-def find_best_thresholds(probs: np.ndarray, labels: np.ndarray, step: float = 0.01) -> np.ndarray:
+def _fbeta_score(y_true: np.ndarray, y_pred: np.ndarray, beta: float = 1.0) -> float:
+    """F-beta score (beta=1 → F1; beta=2 → recall weighted 2x; beta=0.5 → precision weighted)."""
+    tp = float(((y_true == 1) & (y_pred == 1)).sum())
+    fp = float(((y_true == 0) & (y_pred == 1)).sum())
+    fn = float(((y_true == 1) & (y_pred == 0)).sum())
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    denom = (1 + beta ** 2) * precision + beta ** 2 * recall
+    return (1 + beta ** 2) * precision * recall / denom if denom > 0 else 0.0
+
+
+def find_best_thresholds(probs: np.ndarray, labels: np.ndarray, step: float = 0.01,
+                         beta: float = 2.0, min_recall: float = 0.9) -> np.ndarray:
     """
-    Find optimal thresholds for each class to maximize F1 score.
+    Find per-class thresholds on a **validation** set with a recall-first objective.
+
+    Recall is prioritized for allergen detection (a missed allergen is the dangerous
+    error — "false negative" means telling an allergic consumer a product is safe when
+    it is not). Two knobs, used together by default:
+
+    - ``beta``: F-beta objective. ``beta=2.0`` weights recall 4x vs precision
+      (recall-first); ``beta=1.0`` recovers the old balanced-F1 objective.
+    - ``min_recall``: among thresholds that reach at least this recall, pick the one
+      with the best F-beta (avoids the trivial "predict everything → recall=1" point
+      while still guaranteeing a recall floor).
 
     Args:
-        probs: Predicted probabilities from model (n_samples, n_classes)
+        probs: Predicted probabilities (n_samples, n_classes)
         labels: True binary labels (n_samples, n_classes)
         step: Step size for threshold search
+        beta: F-beta weighting (default 2.0 = recall-first)
+        min_recall: minimum recall floor in [0, 1]. Set to None to skip the constraint.
 
     Returns:
         Array of optimal thresholds for each class
@@ -150,15 +174,34 @@ def find_best_thresholds(probs: np.ndarray, labels: np.ndarray, step: float = 0.
     best_thresholds = []
 
     for i in range(num_classes):
+        # No positives in this class → the recall floor is vacuous and the F-beta is
+        # 0 everywhere; keep the conservative default threshold (matches the old
+        # balanced-F1 behaviour and avoids the unconstrained search picking an
+        # arbitrary low threshold for a class that never occurs in validation).
+        if (labels[:, i] == 1).sum() == 0:
+            best_thresholds.append(0.5)
+            continue
         best_t = 0.5
-        best_f1 = 0
+        best_score = -1.0
+        best_t_unconstrained = 0.5
+        best_score_unconstrained = -1.0
         for t in np.arange(0.01, 0.99, step):
             preds = (probs[:, i] >= t).astype(int)
-            f1 = f1_score(labels[:, i], preds, zero_division=0)
-            if f1 > best_f1:
-                best_f1 = f1
+            score = _fbeta_score(labels[:, i], preds, beta=beta)
+            if score > best_score_unconstrained:
+                best_score_unconstrained = score
+                best_t_unconstrained = t
+            if min_recall is not None:
+                tp = float(((preds == 1) & (labels[:, i] == 1)).sum())
+                fn = float(((preds == 0) & (labels[:, i] == 1)).sum())
+                recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                if recall < min_recall:
+                    continue
+            if score > best_score:
+                best_score = score
                 best_t = t
-        best_thresholds.append(best_t)
+        # If no threshold reached the recall floor, fall back to the unconstrained best
+        best_thresholds.append(best_t if best_score >= 0 else best_t_unconstrained)
 
     return np.array(best_thresholds)
 

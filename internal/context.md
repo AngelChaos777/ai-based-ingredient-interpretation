@@ -63,14 +63,25 @@ The system is designed for **eventual mobile deployment** on Android (ONNX Runti
                     ┌────────────────▼────────────────────────┐
                     │      06_allergen_labeling.ipynb          │
                     │  Rule-based + official tags, exemptions  │
-                    │  Filipino variant integration            │
-                    │  uses combine_allergen_labels()          │
+                    │  Filipino variants, OFF-tag validation   │
                     └────────────────┬────────────────────────┘
                                      │
                     ┌────────────────▼────────────────────────┐
-                    │      07_allergen_training.ipynb          │
-                    │  MobileBERT fine-tune (weighted BCE)     │
-                    │  Stratified split + threshold opt.       │
+                    │     07_training_data_preparation.ipynb   │
+                    │  Stratified split FIRST (no leakage)     │
+                    │  Augment train split only                │
+                    └────────────────┬────────────────────────┘
+                                     │
+                    ┌────────────────▼────────────────────────┐
+                    │        08_allergen_training.ipynb        │
+                    │  BCE / Focal / ASL / 5-seed ensemble     │
+                    │  Winner selected on VALIDATION only      │
+                    └────────────────┬────────────────────────┘
+                                     │
+                    ┌────────────────▼────────────────────────┐
+                    │       09_allergen_evaluation.ipynb       │
+                    │  Val thresholds → single held-out test   │
+                    │  ML vs official-tag evaluation           │
                     └────────────────┬────────────────────────┘
                                      │
                     ┌▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┐
@@ -78,9 +89,9 @@ The system is designed for **eventual mobile deployment** on Android (ONNX Runti
                     ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔┘
                                      │
                     ┌────────────────▼────────────────────────┐
-                    │      08_hybrid_evaluation.ipynb          │
-                    │  ML predictions + rule-based override    │
-                    │  → hybrid_config.json, Filipino rules    │
+                    │       10_hybrid_evaluation.ipynb         │
+                    │  Rule vs ML vs hybrid (honest delta)     │
+                    │  → production hybrid_config.json         │
                     └────────────────┬────────────────────────┘
                                      │
                     ┌▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┐
@@ -88,12 +99,12 @@ The system is designed for **eventual mobile deployment** on Android (ONNX Runti
                     ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔┘
                                      │
                     ┌────────────────▼────────────────────────┐
-                    │      09_model_export.ipynb               │
+                    │          11_model_export.ipynb           │
                     │  PyTorch → ONNX → ONNX Runtime Mobile    │
                     └────────────────┬────────────────────────┘
                                      │
                     ┌────────────────▼────────────────────────┐
-                    │      10_mobile_benchmark.ipynb           │
+                    │        12_mobile_benchmark.ipynb         │
                     │  Latency/size/accuracy validation        │
                     └────────────────┬────────────────────────┘
                                      │
@@ -340,13 +351,13 @@ The hybrid system (`model_utils.hybrid_predict()`) combines ML predictions with 
 }
 ```
 
-These thresholds were saved directly from Notebook 07's validation-set optimization, replacing previously stale values. The config now reflects the trained model's actual optimal operating point.
+These thresholds were saved directly from Notebook 09's validation-set optimization, replacing previously stale values. The config now reflects the trained model's actual optimal operating point. Notebook 10 then rewrites `hybrid_config.json` with the production `per_allergen_modes`.
 
 ### Batched Inference (CUDA OOM Fix)
 
-Notebook 08's `predict_ml()` previously ran all test samples as a single batch, causing CUDA OOM on the 8 GiB RTX 3050 when orphan Jupyter kernels from prior training runs held ~6.6 GiB of VRAM. Fixed by adding a `batch_size` parameter (default 8) that processes texts in small batches with periodic `torch.cuda.empty_cache()` calls. Both `predict_ml()` and `hybrid_predict()` now support `batch_size` — pass it explicitly to control GPU memory usage.
+Notebook 10's `predict_ml()` previously ran all test samples as a single batch, causing CUDA OOM on the 8 GiB RTX 3050 when orphan Jupyter kernels from prior training runs held ~6.6 GiB of VRAM. Fixed by adding a `batch_size` parameter (default 8) that processes texts in small batches with periodic `torch.cuda.empty_cache()` calls. Both `predict_ml()` and `hybrid_predict()` now support `batch_size` — pass it explicitly to control GPU memory usage.
 
-**Orphan kernel issue:** 6+ stale `ipykernel_launcher` processes can persist between runs, each holding GPU memory. Restarting the Jupyter kernel or killing orphan PIDs frees the memory. Notebook 08 now calls `torch.cuda.empty_cache()` at startup to mitigate fragmentation.
+**Orphan kernel issue:** 6+ stale `ipykernel_launcher` processes can persist between runs, each holding GPU memory. Restarting the Jupyter kernel or killing orphan PIDs frees the memory. The training/evaluation notebooks now call `torch.cuda.empty_cache()` at startup to mitigate fragmentation.
 
 ### Performance (test set) — Verified End-to-End (Phase 0 final)
 
@@ -503,17 +514,19 @@ source .venv/bin/activate   # or .venv\Scripts\activate on Windows
 jupyter lab
 
 # Run notebooks in order:
+# 0. notebooks/00_pipeline_overview.ipynb  (pipeline map, markdown-only)
 # 1. notebooks/01_extraction.ipynb
 # 2. notebooks/02_cleaning.ipynb
 # 3. notebooks/03_ingredient_parsing.ipynb  (Deliverable 1)
 # 4. notebooks/04_semantic_labeling.ipynb
 # 5. notebooks/05_semantic_model.ipynb
 # 6. notebooks/06_allergen_labeling.ipynb   (Deliverable 2)
-# 7. notebooks/07_allergen_training.ipynb
-# 8. notebooks/08_hybrid_evaluation.ipynb   (Deliverable 3)
-# 9. notebooks/09_model_export.ipynb         (Deliverable 4)
-# 10. notebooks/10_mobile_benchmark.ipynb
-# 11. notebooks/11_dataset_augmentation.ipynb  (Phase 3 — optional)
+# 7. notebooks/07_training_data_preparation.ipynb   (split first → augment train only)
+# 8. notebooks/08_allergen_training.ipynb   (BCE / Focal / ASL / ensemble, val selection)
+# 9. notebooks/09_allergen_evaluation.ipynb (val thresholds, held-out test)
+# 10. notebooks/10_hybrid_evaluation.ipynb  (Deliverable 3)
+# 11. notebooks/11_model_export.ipynb         (Deliverable 4)
+# 12. notebooks/12_mobile_benchmark.ipynb
 ```
 
 All notebooks import from `utils/` — they must be run from the `notebooks/` directory so the relative import `from utils.xxx import yyy` resolves correctly.
@@ -533,7 +546,7 @@ python scripts/run_pipeline.py
 python scripts/run_pipeline.py --dry-run
 
 # Resume from a specific notebook
-python scripts/run_pipeline.py --skip-until 07_allergen_training
+python scripts/run_pipeline.py --skip-until 07_training_data_preparation
 
 # Validate that key output files exist after a prior run
 python scripts/run_pipeline.py --validate
@@ -582,7 +595,7 @@ python scripts/run_pipeline.py --validate
 ### Environment / Platform
 - **HuggingFace `Trainer` segfaults** on this GPU stack (PyTorch 2.12.0+cu130 with non-standard CUDA 13.0). `Trainer.__init__` triggers a native SIGSEGV during device management. All training uses a manual PyTorch loop as a workaround.
 - **`clip_grad_norm_` API change:** PyTorch 2.x renamed `max_grad_norm` → `max_norm`. Must use `max_norm=1.0`.
-- **CUDA memory fragmentation:** 6+ orphan `ipykernel_launcher` processes can persist between notebook runs, each holding GPU memory (cumulatively 5–7 GiB). Killing orphan PIDs or restarting the Jupyter kernel is required before running notebook 08's inference.
+- **CUDA memory fragmentation:** 6+ orphan `ipykernel_launcher` processes can persist between notebook runs, each holding GPU memory (cumulatively 5–7 GiB). Killing orphan PIDs or restarting the Jupyter kernel is required before running notebook 10's inference.
 - **`nvidia-smi` not installed** — no CLI visibility into GPU process memory usage. Only PyTorch's `torch.cuda.memory_allocated()` is available.
 
 ### Pipeline
@@ -595,7 +608,7 @@ python scripts/run_pipeline.py --validate
   - `tests/test_data_utils.py` — data loading, splitting, augmentation
   - `tests/test_model_utils.py` — model prediction, threshold optimization, hybrid inference
 
-- **Pipeline automation:** `scripts/run_pipeline.py` orchestrates 11 notebooks in dependency order with dry-run, skip-until, validate, and timeout flags.
+- **Pipeline automation:** `scripts/run_pipeline.py` orchestrates 13 notebooks in dependency order with dry-run, skip-until, validate, and timeout flags.
 
 - No CI/CD pipeline.
 
@@ -650,12 +663,14 @@ python scripts/run_pipeline.py --validate
 │   ├── 03_ingredient_parsing.ipynb    # Ingredient tokenization (D1)
 │   ├── 04_semantic_labeling.ipynb     # 40-category rule labeling (D1)
 │   ├── 05_semantic_model.ipynb       # Semantic MobileBERT training (D1)
-│   ├── 06_allergen_labeling.ipynb    # Allergen annotation (D2)
-│   ├── 07_allergen_training.ipynb    # Allergen MobileBERT training (D2)
-│   ├── 08_hybrid_evaluation.ipynb    # Hybrid detection (D3)
-│   ├── 09_model_export.ipynb         # ONNX conversion + validation (D4)
-│   ├── 10_mobile_benchmark.ipynb     # Benchmarking (D4)
-│   ├── 11_dataset_augmentation.ipynb # Targeted augmentation for rare classes
+│   ├── 00_pipeline_overview.ipynb    # Pipeline map + methodology (markdown-only)
+│   ├── 06_allergen_labeling.ipynb    # Allergen annotation + OFF-tag validation (D2)
+│   ├── 07_training_data_preparation.ipynb # Split first, augment train only (D2)
+│   ├── 08_allergen_training.ipynb    # BCE/Focal/ASL/ensemble training (D2)
+│   ├── 09_allergen_evaluation.ipynb  # Val thresholds, held-out test (D2)
+│   ├── 10_hybrid_evaluation.ipynb    # Hybrid detection (D3)
+│   ├── 11_model_export.ipynb         # ONNX conversion + validation (D4)
+│   ├── 12_mobile_benchmark.ipynb     # Benchmarking (D4)
 │   └── utils/
 │       ├── __init__.py               # Package exports (version 2.2.0)
 │       ├── README.md                 # Comprehensive utility module docs

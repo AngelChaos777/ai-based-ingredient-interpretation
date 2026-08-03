@@ -41,6 +41,9 @@ Data used in this project is sourced from OpenFoodFacts.
 
 ## 📓 Notebook Pipeline
 Each notebook represents a stage in the end-to-end workflow. Run them sequentially for best results.
+`00_pipeline_overview.ipynb` is a markdown-only map of the whole pipeline, its two deliverables,
+and the methodology guarantees (no augmentation leakage, validation-only model selection,
+single held-out test evaluation, honest hybrid reporting).
 
 ### 1. Data Extraction (`01_extraction.ipynb`)
 - Extracts ingredient text from food label images using **pytesseract** (OCR)
@@ -76,61 +79,52 @@ Each notebook represents a stage in the end-to-end workflow. Run them sequential
 - Uses **Weighted Binary Cross-Entropy** loss to mitigate class imbalance
 - Optimizes per-class probability thresholds, saves model and evaluation metrics
 
-### Deliverable 2 — Allergen Detection (Notebooks 06–07)
+### Deliverable 2 — Allergen Detection (Notebooks 06–10)
 
 ### 6. Allergen Labeling (`06_allergen_labeling.ipynb`)
 - Assigns allergen labels to each product using FDA-defined BIG8 categories
 - Combines rule-based detection with official OpenFoodFacts allergen tags
 - Processes "may contain" statements, traces tags, and exemption rules
 - Includes Filipino variant detection merged into the BIG8 dictionary
+- **Validates the rule engine against official OFF tags** (`evaluate_rule_vs_official`)
 - Exports `labeled_dataset_enhanced.csv` for model training
 
-### 7. Allergen Model Training (`07_allergen_training.ipynb`)
-- Fine-tunes **MobileBERT** (Hugging Face Transformers) for multi-label allergen classification
-- 8 output classes: Milk, Eggs, Peanuts, Tree Nuts, Soy, Wheat, Fish, Shellfish
-- Uses **Weighted Binary Cross-Entropy** loss to handle class imbalance
-- Optimizes prediction thresholds per allergen via validation set
-- Saves the trained model, tokenizer, and training metadata
+### 7. Training Data Preparation (`07_training_data_preparation.ipynb`)
+- **Splits first** (stratified 70/15/15) — augmentation never leaks into validation/test
+- Augments the **training split only** (synonym replacement, targeted oversampling, counter-examples)
+- Applies optional label-quality cleaning (`clean_training_data`)
+- Saves canonical split files to `data/final/splits/`
 
-### Deliverable 3 — Hybrid Detection (Notebook 08)
+### 8. Allergen Model Training (`08_allergen_training.ipynb`)
+- Trains candidate MobileBERT classifiers: weighted **BCE**, **Focal loss**, **ASL**, and a 5-seed **ensemble**
+- **Selects the winner on the validation set** — the test set is never touched here
+- Saves the winner as the canonical `mobilebert_allergen_final` model
 
-### 8. Hybrid Evaluation (`08_hybrid_evaluation.ipynb`)
-- Loads the pre-trained MobileBERT allergen model
-- Combines rule-based allergen patterns with ML probabilities using hybrid_config
-- Supports configurable merge modes: `rule_priority`, `ml_priority`, `hard_override`
-- Evaluates hybrid performance on the held‑out test set
-- Includes Filipino-aware rule matching merged into `COMPILED_RULES`
+### 9. Allergen Evaluation (`09_allergen_evaluation.ipynb`)
+- Tunes per-class probability thresholds **on validation**
+- Runs the **single, final held-out test evaluation**
+- Compares **ML predictions vs official OFF tags** for a real-world signal
+- Quantifies seed variance across the ensemble
 
-### Deliverable 4 — Deployment (Notebooks 09–10)
+### Deliverable 3 — Hybrid Detection (Notebook 10)
 
-### 9. Model Export (`09_model_export.ipynb`)
+### 10. Hybrid Evaluation (`10_hybrid_evaluation.ipynb`)
+- Compares rule-based, ML, and hybrid systems three ways (rule vs ML vs hybrid)
+- **Reports honestly how many predictions the hybrid override actually changes** (helped / hurt / neutral)
+- Includes per-allergen hybrid modes (rule-priority for rare classes) and a tree-nuts case study
+- Saves the production `hybrid_config.json`
+
+### Deliverable 4 — Deployment (Notebooks 11–12)
+
+### 11. Model Export (`11_model_export.ipynb`)
 - Converts trained PyTorch models to ONNX format
-- Optimizes models for mobile deployment
-- Includes quantization and pruning steps
-- Validates exported model accuracy
+- Validates ONNX output against the PyTorch baseline
+- Benchmarks PyTorch vs ONNX inference latency
+- Generates a deployment readiness report
 
-### 10. Mobile Benchmark (`10_mobile_benchmark.ipynb`)
-- Benchmarks model performance on mobile devices
-- Measures latency, memory footprint, and battery impact
-- Compares different model optimization strategies
-- Validates mobile deployment viability
-
-### Deliverable 5 — Advanced Optimization (Notebooks 11–12)
-
-### 11. Dataset Augmentation (`11_dataset_augmentation.ipynb`)
-- Implements targeted data augmentation strategies
-- Focuses on under-represented allergen classes
-- Generates synthetic training examples
-- Evaluates augmentation impact on model performance
-
-### 12. Tree Nuts Optimization (`12_tree_nuts_optimization.ipynb`)
-- **Specialized optimization for tree nuts detection**
-- Comprehensive data augmentation: increases tree nuts from 15 to 495 positive samples
-- Advanced loss functions: ASL (Asymmetric Loss), Focal Loss, Set-size regularization
-- Per-allergen threshold optimization for maximum F1
-- Hybrid detection with rule-priority mode for tree nuts
-- Counter-example generation for false-positive reduction
-- Results: **Tree nuts F1 improved from 0.93 → 0.9615 (ML) / 0.8571 (hybrid)**
+### 12. Mobile Benchmark (`12_mobile_benchmark.ipynb`)
+- Benchmarks ONNX models against mobile acceptance criteria (latency, size, accuracy)
+- Validates deployment viability for ONNX Runtime Mobile
 
 ---
 
@@ -166,18 +160,19 @@ Launch Jupyter Lab/Notebook and execute the notebooks in order:
 jupyter lab   # or jupyter notebook
 ```
 Then open:
-1. `01_extraction.ipynb`
-2. `02_cleaning.ipynb`
-3. `03_ingredient_parsing.ipynb` *(Deliverable 1 — Semantic Classification)*
-4. `04_semantic_labeling.ipynb`
-5. `05_semantic_model.ipynb`
-6. `06_allergen_labeling.ipynb` *(Deliverable 2 — Allergen Detection)*
-7. `07_allergen_training.ipynb`
-8. `08_hybrid_evaluation.ipynb` *(Deliverable 3 — Hybrid Detection)*
-9. `09_model_export.ipynb` *(Deliverable 4 — Deployment)*
-10. `10_mobile_benchmark.ipynb`
-11. `11_dataset_augmentation.ipynb` *(Deliverable 5 — Advanced Optimization)*
-12. `12_tree_nuts_optimization.ipynb`
+1. `00_pipeline_overview.ipynb`
+2. `01_extraction.ipynb`
+3. `02_cleaning.ipynb`
+4. `03_ingredient_parsing.ipynb` *(Deliverable 1 — Semantic Classification)*
+5. `04_semantic_labeling.ipynb`
+6. `05_semantic_model.ipynb`
+7. `06_allergen_labeling.ipynb` *(Deliverable 2 — Allergen Detection)*
+8. `07_training_data_preparation.ipynb`
+9. `08_allergen_training.ipynb`
+10. `09_allergen_evaluation.ipynb`
+11. `10_hybrid_evaluation.ipynb` *(Deliverable 3 — Hybrid Detection)*
+12. `11_model_export.ipynb` *(Deliverable 4 — Deployment)*
+13. `12_mobile_benchmark.ipynb`
 
 Each notebook contains executable cells with clear markdown explanations.
 
@@ -191,12 +186,14 @@ flowchart TD
     C --> D[03 Ingredient Parsing: Tokenize → Ingredient-Level Dataset]
     D --> E[04 Semantic Labeling: Rule-Based Category Mapping]
     E --> F[05 Semantic Model: MobileBERT Multi-Label Training]
-    F --> G[06 Allergen Labeling: Rule-Based + Official Tags]
-    G --> H[07 Allergen Training: MobileBERT Fine-Tuning]
-    H --> I[08 Hybrid Evaluation: ML + Rule-Based Consensus]
-    I --> J[09 Model Export: PyTorch → ONNX → ONNX Runtime Mobile]
-    J --> K[10 Mobile Benchmark: Latency + Size Validation]
-    K --> L[Allergen Predictions per Product]
+    F --> G[06 Allergen Labeling: Rule-Based + Official-Tag Validation]
+    G --> H[07 Data Prep: Stratified Split → Augment Train Only]
+    H --> I[08 Allergen Training: BCE / Focal / ASL / Ensemble]
+    I --> J[09 Evaluation: Val Thresholds + Held-Out Test]
+    J --> K[10 Hybrid Evaluation: ML + Rule-Based]
+    K --> L[11 Model Export: PyTorch → ONNX]
+    L --> M[12 Mobile Benchmark: ONNX Runtime Mobile]
+    M --> N[Allergen Predictions per Product]
 ```
 
 ---
@@ -255,14 +252,14 @@ preds, probs = predict_ml(texts, thresholds=thresholds)
 
 ## 📈 Model Performance
 
-### Baseline Model (Notebook 07)
+### Baseline Model (Notebook 08)
 | Metric | Milk | Eggs | Peanuts | Tree Nuts | Soy | Wheat | Fish | Shellfish |
 |--------|------|------|---------|-----------|-----|-------|------|-----------|
 | Precision | 0.97 | 1.00 | 0.80 | 0.91 | 0.93 | 1.00 | 1.00 | 1.00 |
 | Recall | 0.92 | 0.90 | 1.00 | 0.96 | 1.00 | 0.98 | 1.00 | 0.60 |
 | F1‑Score | 0.95 | 0.95 | 0.89 | 0.93 | 0.96 | 0.99 | 1.00 | 0.75 |
 
-### Tree Nuts Optimized Model (Notebook 12)
+### Tree Nuts Case Study (Notebook 10)
 | Metric | Milk | Eggs | Peanuts | Tree Nuts | Soy | Wheat | Fish | Shellfish |
 |--------|------|------|---------|-----------|-----|-------|------|-----------|
 | Precision | 1.00 | 1.00 | 0.99 | 0.93 | 0.99 | 1.00 | 0.98 | 1.00 |
@@ -276,7 +273,7 @@ preds, probs = predict_ml(texts, thresholds=thresholds)
 - **Training Time:** ~25 min on a single RTX 3060 (6 GB VRAM) for baseline
 - **Inference Latency:** ~12 ms per ingredient on CPU
 
-*Numbers are from the test set evaluation in `07_allergen_training.ipynb` and `12_tree_nuts_optimization.ipynb`.*
+*Numbers shown are from the pre-restructure runs. Re-run `08_allergen_training.ipynb` → `09_allergen_evaluation.ipynb` and the tree-nuts case study in `10_hybrid_evaluation.ipynb` to regenerate them on the current pipeline.*
 
 ---
 
@@ -284,11 +281,11 @@ preds, probs = predict_ml(texts, thresholds=thresholds)
 
 | Issue | Solution |
 |-------|----------|
-| **GPU OOM** | Reduce `batch_size` in `07_allergen_training.ipynb`; enable `gradient_accumulation_steps`. |
+| **GPU OOM** | Reduce `batch_size` in `08_allergen_training.ipynb`; enable `gradient_accumulation_steps`. |
 | **Slow OCR** | Ensure input images are ≥300 DPI; apply deskewing and contrast adjustment (see OpenCV snippets in the extraction notebook). |
 | **Low Recall for Rare Allergens** | Increase class weight for that allergen in the loss function; collect more labeled examples. |
 | **Module Not Found (e.g., `duckdb`)** | Install via `pip install duckdb`; verify you’re using the correct virtual environment. |
-| **Threshold Tuning** | Adjust thresholds in `08_hybrid_evaluation.ipynb` → search for `threshold_dict`; optimize using validation precision‑recall curves. |
+| **Threshold Tuning** | Adjust thresholds in `09_allergen_evaluation.ipynb` → `find_best_thresholds`; optimize using validation precision‑recall curves. |
 
 ---
 

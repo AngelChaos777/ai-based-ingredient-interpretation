@@ -70,11 +70,11 @@ def check_data_files():
         check("data/final/labeled_dataset_enhanced*.csv [main labeled dataset]", FAIL,
               "FILE NOT FOUND")
 
-    # Check augmented dataset from Notebook 11
-    lbl_aug_path = PROJECT_ROOT / "data/final/labeled_dataset_augmented_with_labels.csv"
+    # Check augmented train split from Notebook 07
+    lbl_aug_path = PROJECT_ROOT / "data/final/splits/train_augmented.csv"
     if lbl_aug_path.exists():
         size_kb = lbl_aug_path.stat().st_size / 1024
-        check("labeled_dataset_augmented_with_labels.csv [Notebook 11 - augmented]", PASS,
+        check("data/final/splits/train_augmented.csv [Notebook 07 - augmented train]", PASS,
               f"{size_kb:.0f} KB")
 
     # Optional intermediate files
@@ -93,9 +93,8 @@ def check_data_files():
     # Check config files
     config_files = {
         "models/hybrid_config.json": "hybrid config (production)",
-        "models/hybrid_config_tree_nuts.json": "tree nuts optimization config (Notebook 12)",
         "models/best_thresholds.npy": "ML thresholds array",
-        "models/best_thresholds_tree_nuts.npy": "tree nuts optimized thresholds",
+        "models/model_selection.json": "model selection record (Notebook 08)",
     }
     for rel_path, description in config_files.items():
         full = PROJECT_ROOT / rel_path
@@ -127,22 +126,33 @@ def check_model_artifacts():
     section = "\n── Model Artifacts ──"
     print(section)
 
-    # Define all model directories to check
-    model_configs = [
-        ("models/mobilebert_allergen_final", "Notebook 07 - BCE baseline"),
-        ("models/mobilebert_allergen_tree_nuts_optimized", "Notebook 12 - Tree Nuts ASL"),
-        ("models/mobilebert_allergen_focal", "Notebook 09 - Focal Loss"),
-        ("models/mobilebert_allergen_ensemble", "Notebook 10 - Ensemble (5 seeds)"),
-        ("models/mobilebert_semantic_final", "Notebook 04 - Semantic classifier"),
-    ]
-
+    # Define all model directories to check.
+    # The ensemble stores per-seed checkpoints in `seed_{seed}/` subdirectories,
+    # so it is validated differently from the flat model dirs below.
+    # Weight file may be either legacy pytorch_model.bin or model.safetensors
+    # (transformers saves safetensors by default since v4.30).
     required = ["pytorch_model.bin", "tokenizer.json", "tokenizer_config.json"]
+    weight_files = {"pytorch_model.bin", "model.safetensors"}
+
+    model_configs = [
+        ("models/mobilebert_allergen_final", "Notebook 08 - winner (selected on validation)"),
+        ("models/mobilebert_allergen_bce", "Notebook 08 - BCE candidate"),
+        ("models/mobilebert_allergen_focal", "Notebook 08 - Focal candidate"),
+        ("models/mobilebert_allergen_asl", "Notebook 08 - ASL candidate"),
+        ("models/mobilebert_semantic_final", "Notebook 05 - Semantic classifier"),
+    ]
 
     for rel_dir, description in model_configs:
         model_dir = PROJECT_ROOT / rel_dir
         if model_dir.exists():
             check(f"{rel_dir}/ [{description}]", PASS)
-            for fname in required:
+            present_weights = [f for f in weight_files if (model_dir / f).exists()]
+            if present_weights:
+                size_mb = (model_dir / present_weights[0]).stat().st_size / (1024 * 1024)
+                check(f"  weights ({present_weights[0]})", PASS, f"{size_mb:.1f} MB")
+            else:
+                check("  weights (pytorch_model.bin|model.safetensors)", FAIL, "FILE NOT FOUND")
+            for fname in [f for f in required if f not in weight_files]:
                 fpath = model_dir / fname
                 if fpath.exists():
                     size_mb = fpath.stat().st_size / (1024 * 1024)
@@ -151,6 +161,31 @@ def check_model_artifacts():
                     check(f"  {fname}", FAIL, "FILE NOT FOUND")
         else:
             check(f"{rel_dir}/ [{description}]", SKIP, "DIRECTORY NOT FOUND (optional)")
+
+    # Ensemble: check that per-seed subdirectories exist with required files
+    ens_dir = PROJECT_ROOT / "models/mobilebert_allergen_ensemble"
+    if ens_dir.exists():
+        seed_dirs = sorted(d for d in ens_dir.iterdir() if d.is_dir() and d.name.startswith("seed_"))
+        if not seed_dirs:
+            check("models/mobilebert_allergen_ensemble/ [Notebook 08 - Ensemble (5 seeds)]", FAIL,
+                  "no seed_*/ subdirectories")
+        else:
+            check(f"models/mobilebert_allergen_ensemble/ [Notebook 08 - Ensemble (5 seeds)] → "
+                  f"{len(seed_dirs)} seed dirs", PASS)
+            for seed_dir in seed_dirs[:3]:
+                weight = next((f for f in weight_files if (seed_dir / f).exists()), None)
+                missing = [fname for fname in required if fname not in weight_files
+                           and not (seed_dir / fname).exists()]
+                if weight is None:
+                    check(f"  {seed_dir.name}: weights", FAIL, "FILE NOT FOUND")
+                elif missing:
+                    check(f"  {seed_dir.name}: {', '.join(missing)}", FAIL, "FILE NOT FOUND")
+                else:
+                    size_mb = (seed_dir / weight).stat().st_size / (1024 * 1024)
+                    check(f"  {seed_dir.name}: complete", PASS, f"{size_mb:.1f} MB model")
+    else:
+        check("models/mobilebert_allergen_ensemble/ [Notebook 08 - Ensemble (5 seeds)]", SKIP,
+              "DIRECTORY NOT FOUND (optional)")
 
 
 # ════════════════════════════════════════════════

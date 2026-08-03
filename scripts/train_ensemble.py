@@ -109,7 +109,13 @@ torch.cuda.manual_seed_all(SEED)
 
 # ─── Load & Prepare Data ───
 dirs = get_data_directories()
-df = load_labeled_data(filepath=os.path.join(dirs['final'], 'labeled_dataset_enhanced_fixed.csv'))
+# Prefer Notebook 06's output (current rule semantics, may-contain counts as positive);
+# fall back to the stale July file so the script still runs without Notebook 06.
+label_source = os.path.join(dirs['final'], 'labeled_dataset_enhanced.csv')
+if not os.path.exists(label_source):
+    label_source = os.path.join(dirs['final'], 'labeled_dataset_enhanced_fixed.csv')
+    print("WARNING: using labeled_dataset_enhanced_fixed.csv (stale semantics). Run Notebook 06 first.")
+df = load_labeled_data(filepath=label_source)
 df["ingredients_cleaned"] = df["ingredients_text_en"].apply(clean_html)
 df["labels"] = df["detected_allergens"].apply(allergens_to_binary)
 

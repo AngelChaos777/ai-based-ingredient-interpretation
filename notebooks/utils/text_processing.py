@@ -116,7 +116,9 @@ BIG8 = {
     ],
     "fish": [
         "fish", "tuna", "salmon", "sardine",
-        "anchovy", "mackerel", "cod",
+        "anchovy", "mackerel", "cod", "herring",
+        # plural forms — \b boundary matching means "sardines" does NOT match "sardine"
+        "tunas", "salmons", "sardines", "anchovies", "mackerels", "herrings", "cods",
         "fish sauce", "fish oil",
         "surimi", "pollock", "trout", "roe",
         "fish gelatin", "isinglass", "caviar", "fish meal",
@@ -126,7 +128,11 @@ BIG8 = {
         "shrimp", "prawn", "crab", "lobster",
         "crayfish", "krill", "clam", "mussel", "oyster", "scallop", "crawfish", "langoustine",
         "squid", "crab paste", "abalone", "conch", "cockle", "whelk",
-        "crab meat", "lobster paste"
+        "crab meat", "lobster paste",
+        # generic category words — appear in EU allergen declarations + facility warnings
+        # ("may contain crustaceans, nuts, mustard, sesame, mollusc") — recall-critical
+        "crustacean", "crustaceans", "mollusc", "molluscs", "molluscan",
+        "shellfish", "shellfishes", "bivalve", "bivalves"
     ],
 }
 

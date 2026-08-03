@@ -49,17 +49,19 @@ OUTPUT_DIR = PROJECT_ROOT / "output" / "executed_notebooks"
 # Only exclude notebooks that are purely exploratory or not part of the
 # production pipeline.
 NOTEBOOK_ORDER: List[str] = [
+    "00_pipeline_overview",  # markdown-only pipeline map
     "01_extraction",
     "02_cleaning",
     "03_ingredient_parsing",
     "04_semantic_labeling",
     "05_semantic_model",
     "06_allergen_labeling",
-    "07_allergen_training",
-    "08_hybrid_evaluation",
-    "09_model_export",
-    "10_mobile_benchmark",
-    "11_dataset_augmentation",
+    "07_training_data_preparation",
+    "08_allergen_training",
+    "09_allergen_evaluation",
+    "10_hybrid_evaluation",
+    "11_model_export",
+    "12_mobile_benchmark",
 ]
 
 # Key outputs to validate after each notebook (relative to PROJECT_ROOT).
@@ -78,12 +80,23 @@ EXPECTED_OUTPUTS: dict = {
     "06_allergen_labeling": [
         "data/labeled_dataset_enhanced.csv",
     ],
-    "07_allergen_training": [
+    "07_training_data_preparation": [
+        "data/final/splits/",
+    ],
+    "08_allergen_training": [
         "models/mobilebert_allergen_final/",
+        "models/model_selection.json",
+    ],
+    "09_allergen_evaluation": [
+        "models/best_thresholds.npy",
         "models/hybrid_config.json",
     ],
-    "09_model_export": [
-        "models/mobilebert_allergen_final/model.onnx",
+    "11_model_export": [
+        "models/exported/allergen_model/allergen_model.onnx",
+        "models/exported/deployment_report.json",
+    ],
+    "12_mobile_benchmark": [
+        "models/exported/mobile_readiness_report.json",
     ],
 }
 
