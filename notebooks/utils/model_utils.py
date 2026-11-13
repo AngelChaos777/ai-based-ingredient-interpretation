@@ -285,10 +285,8 @@ def hybrid_predict(texts: List[str],
     Available modes for each allergen:
 
     - ``None`` (default): uses the global *mode*.
-    - ``'rule_priority'``: if the rule engine detects the allergen, set
-      prediction to 1 regardless of ML probability.  Designed for rare
-      allergens (e.g. tree nuts) where ML sigmoid outputs rarely exceed
-      *rule_conf_threshold*.
+    - ``'hard_override'`` / ``'rule_priority'``: if the rule engine detects
+      the allergen, set prediction to 1 regardless of ML probability.
 
     Args:
         texts: List of input texts
@@ -296,7 +294,7 @@ def hybrid_predict(texts: List[str],
         tokenizer: Tokenizer for the model
         device: Device to run inference on
         thresholds: Optional array of thresholds for each class (default: 0.5 for all)
-        rule_conf_threshold: Confidence threshold for rule-based override
+        rule_conf_threshold: Probability threshold used by 'high_confidence_bypass'
         mode: Global hybrid mode ('hard_override', 'soft', 'high_confidence_bypass')
         alpha: Weight for rule-based contribution in 'soft' mode
         max_length: Maximum sequence length for tokenization
@@ -323,12 +321,8 @@ def hybrid_predict(texts: List[str],
             # Resolve effective mode for this allergen
             effective_mode = (per_allergen_modes or {}).get(allergen, mode)
 
-            if effective_mode == 'rule_priority':
-                # Rule overrides ML entirely — designed for rare classes
+            if effective_mode in ('hard_override', 'rule_priority'):
                 if rule_present:
-                    hybrid_preds[i][j] = 1
-            elif effective_mode == 'hard_override':
-                if rule_present and probs[i][j] > rule_conf_threshold:
                     hybrid_preds[i][j] = 1
             elif effective_mode == 'soft':
                 final_prob = probs[i][j] + alpha * (1 if rule_present else 0)

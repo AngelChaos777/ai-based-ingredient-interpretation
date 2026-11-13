@@ -69,16 +69,16 @@ NOTEBOOK_ORDER: List[str] = [
 # or exact paths).  Only the most important outputs are checked.
 EXPECTED_OUTPUTS: dict = {
     "02_cleaning": [
-        "data/cleaned_dataset.csv",
+        "data/processed/cleaned_dataset.csv",
     ],
     "04_semantic_labeling": [
-        "data/labeled_dataset.csv",
+        "data/final/semantic_training_data.csv",
     ],
     "05_semantic_model": [
         "models/mobilebert_semantic_final/",
     ],
     "06_allergen_labeling": [
-        "data/labeled_dataset_enhanced.csv",
+        "data/final/labeled_dataset_enhanced.csv",
     ],
     "07_training_data_preparation": [
         "data/final/splits/",
@@ -287,9 +287,11 @@ def main() -> int:
             print(f"\nPipeline aborted at {name} due to execution failure.\n")
             break
 
-        # Validate key outputs after successful execution
-        if success:
-            validate_outputs(name)
+        # A notebook is not successful unless its expected artifacts were written.
+        if not validate_outputs(name):
+            results[-1] = (name, False, elapsed)
+            print(f"\nPipeline aborted at {name} due to output validation failure.\n")
+            break
 
     duration = time.monotonic() - start_global
 

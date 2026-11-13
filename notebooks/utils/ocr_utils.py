@@ -36,13 +36,17 @@ def extract_text_with_preprocessing(image_path: str, reader: easyocr.Reader) -> 
         # Run OCR on processed image
         results = reader.readtext(processed, detail=0)
         return " ".join(results)
-    except Exception:
+    except Exception as preprocessing_error:
         # Fallback to original method if OpenCV processing fails
         try:
             results = reader.readtext(image_path, detail=0)
             return " ".join(results)
-        except Exception:
-            return ""
+        except Exception as fallback_error:
+            raise RuntimeError(
+                f"OCR extraction failed for {image_path}; preprocessing failed "
+                f"({preprocessing_error}) and the original-image fallback failed "
+                f"({fallback_error})"
+            ) from fallback_error
 
 
 def extract_text_simple(image_path: str, reader: easyocr.Reader) -> str:
@@ -59,8 +63,8 @@ def extract_text_simple(image_path: str, reader: easyocr.Reader) -> str:
     try:
         results = reader.readtext(image_path, detail=0)
         return " ".join(results)
-    except Exception:
-        return ""
+    except Exception as error:
+        raise RuntimeError(f"OCR extraction failed for {image_path}") from error
 
 
 def preprocess_ocr_image(image_path: str) -> Optional[np.ndarray]:

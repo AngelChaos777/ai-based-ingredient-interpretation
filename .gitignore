@@ -1,37 +1,40 @@
-# Virtual environment
+# Virtual environments
 .venv/
+venv/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
 
-# Python cache
-__pycache__/
-*.pyc
-
-# Environment variables
+# Local environment and editor settings
 .env
-
-# Data and model files
-data/
-models/
-output/
-datasets/
-
-# VS Code settings
+.env.*
+!.env.example
 .vscode/
 
-# HuggingFace checkpoints
-checkpoints/
+# Datasets, generated outputs, and archived material
+data/
+datasets/
+output/
+outputs/
+archived/
+
+# Internal project notes
+internal/
+
+# Model checkpoints and exports
 models/
+checkpoints/
 *.pt
 *.bin
 *.safetensors
-
-# Jupyter outputs
-.ipynb_checkpoints/
-
-#internal
-internal/
-tests/
-docs/
-archived/
+*.onnx

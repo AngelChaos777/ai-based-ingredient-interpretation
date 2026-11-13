@@ -297,7 +297,7 @@ NEGATION_PHRASES_BEFORE = [
     "packaged in a facility that also processes",
 ]
 NEGATION_COMPILED_BEFORE = re.compile(
-    r'\b(?:' + '|'.join(re.escape(p) for p in NEGATION_PHRASES_BEFORE) + r')\s+',
+    r'\b(?:' + '|'.join(re.escape(p) for p in NEGATION_PHRASES_BEFORE) + r')\s+$',
     re.IGNORECASE
 )
 
@@ -309,7 +309,13 @@ def preprocess_text(text: str) -> str:
     """Basic text preprocessing: lowercase and strip."""
     return text.lower().strip()
 
-def _context_aware_match(text_lower: str, allergen: str, keyword: str) -> bool:
+def _context_aware_match(
+    text_lower: str,
+    allergen: str,
+    keyword: str,
+    match_start: int,
+    match_end: int,
+) -> bool:
     """
     Check if a keyword match is valid given context disambiguation rules.
 
@@ -330,27 +336,28 @@ def _context_aware_match(text_lower: str, allergen: str, keyword: str) -> bool:
         return True  # No disambiguation rules for this keyword
 
     rules = AMBIGUOUS_KEYWORDS[allergen][keyword]
-    kw_escaped = re.escape(keyword)
+    before_match = text_lower[:match_start]
+    after_match = text_lower[match_end:]
 
     # Check disallow_when_preceded_by — if a disallowed token precedes keyword, reject
     for word in rules.get("disallow_when_preceded_by", []):
         # Matches "disallowed_word keyword" with optional space or hyphen
-        pattern = r'\b' + re.escape(word) + r'[\s\-]+' + kw_escaped + r'\b'
-        if re.search(pattern, text_lower, re.IGNORECASE):
+        pattern = r'\b' + re.escape(word) + r'[\s\-]+$'
+        if re.search(pattern, before_match, re.IGNORECASE):
             return False
 
     # Check disallow_when_followed_by
     for word in rules.get("disallow_when_followed_by", []):
-        pattern = r'\b' + kw_escaped + r'[\s\-]+' + re.escape(word) + r'\b'
-        if re.search(pattern, text_lower, re.IGNORECASE):
+        pattern = r'^[\s\-]+' + re.escape(word) + r'\b'
+        if re.search(pattern, after_match, re.IGNORECASE):
             return False
 
     # Check require_preceded_by — MUST have one of these before keyword
     required_before = rules.get("require_preceded_by", [])
     if required_before:
         for word in required_before:
-            pattern = r'\b' + re.escape(word) + r'[\s\-]+' + kw_escaped + r'\b'
-            if re.search(pattern, text_lower, re.IGNORECASE):
+            pattern = r'\b' + re.escape(word) + r'[\s\-]+$'
+            if re.search(pattern, before_match, re.IGNORECASE):
                 return True
         # None of the required preceding words found — reject
         return False
@@ -359,30 +366,15 @@ def _context_aware_match(text_lower: str, allergen: str, keyword: str) -> bool:
     required_after = rules.get("require_followed_by", [])
     if required_after:
         for word in required_after:
-            pattern = r'\b' + kw_escaped + r'[\s\-]+' + re.escape(word) + r'\b'
-            if re.search(pattern, text_lower, re.IGNORECASE):
+            pattern = r'^[\s\-]+' + re.escape(word) + r'\b'
+            if re.search(pattern, after_match, re.IGNORECASE):
                 return True
         return False
 
     return True
 
 
-# ──────────────────────────────────────────────
-# Allergen stem variations for negation checks
-# ──────────────────────────────────────────────
-ALLERGEN_STEMS = {
-    "milk": ["milk"],
-    "eggs": ["egg", "eggs"],
-    "peanuts": ["peanut", "peanuts"],
-    "tree_nuts": ["tree nut", "tree nuts", "nut", "nuts"],
-    "soy": ["soy", "soya"],
-    "wheat": ["wheat"],
-    "fish": ["fish"],
-    "shellfish": ["shellfish"],
-}
-
-
-def _check_negation(text_lower: str, allergen: str, matched_keyword: Optional[str] = None) -> bool:
+def _check_negation(text_lower: str, match_start: int, match_end: int) -> bool:
     """
     Check if an allergen match in text is negated.
 
@@ -398,52 +390,31 @@ def _check_negation(text_lower: str, allergen: str, matched_keyword: Optional[st
     pattern 3 only matches suffixes like "-free", "-less", "-absent" etc.
     Regular hyphenated compounds are NOT treated as negation.
 
-    Checks negation against both the allergen's canonical stems AND the
-    matched keyword (which may be something like "gluten" for the "wheat"
-    allergen). This ensures phrases like "free from gluten" are correctly
-    recognized as negation.
+    Checks only the text immediately before or after this occurrence, so a
+    negated mention does not suppress a separate positive mention elsewhere.
     """
-    stems = ALLERGEN_STEMS.get(allergen, [allergen])
-    if matched_keyword and matched_keyword not in stems:
-        stems = stems + [matched_keyword]
+    before_match = text_lower[:match_start]
+    after_match = text_lower[match_end:]
 
-    for stem in stems:
-        stem_escaped = re.escape(stem)
+    negation_before = re.compile(
+        r'\b(no|not|free|without|minus|none)\s+(?:\w+\s+)?$',
+        re.IGNORECASE,
+    )
+    negation_after = re.compile(
+        r'^[a-z]*-(?:free|less|absent|avoid|removed|excluded|none)\b',
+        re.IGNORECASE,
+    )
+    negation_after_space = re.compile(
+        r'^\s+(no|not|free|without|minus|none)\b',
+        re.IGNORECASE,
+    )
 
-        # Pattern 1: negation words before stem (with optional intervening words)
-        # e.g., "no milk", "free from wheat"
-        # NOTE: "low in X" means reduced quantity, NOT absence — not treated as negation
-        negation_before = re.compile(
-            r'\b(no|not|free|without|minus|none)\s+(?:\w+\s+)?' + stem_escaped + r'\b',
-            re.IGNORECASE
-        )
-        # Pattern 2: multi-word negation phrases before stem
-        # e.g., "does not contain eggs", "free from gluten"
-        negation_phrases = re.compile(
-            r'\b(does not contain|free from|contains no)\s+' + stem_escaped + r'\b',
-            re.IGNORECASE
-        )
-        # Pattern 3: stem followed by explicit negation suffix
-        # Only matches known suffixes to avoid false negatives on
-        # hyphenated compounds like "milk-chocolate", "peanut-butter", "egg-white"
-        negation_after = re.compile(
-            r'\b' + stem_escaped + r'(?:[a-z]+)?-(?:free|less|absent|avoid|removed|excluded|none)\b',
-            re.IGNORECASE
-        )
-        # Pattern 4: stem followed by negation word
-        # e.g., "wheat free", "egg free", "milk free"
-        negation_after_space = re.compile(
-            r'\b' + stem_escaped + r'\s+(no|not|free|without|minus|none)\b',
-            re.IGNORECASE
-        )
-
-        if (negation_before.search(text_lower) or
-            negation_phrases.search(text_lower) or
-            negation_after.search(text_lower) or
-            negation_after_space.search(text_lower)):
-            return True
-
-    return False
+    return bool(
+        negation_before.search(before_match)
+        or NEGATION_COMPILED_BEFORE.search(before_match)
+        or negation_after.search(after_match)
+        or negation_after_space.search(after_match)
+    )
 
 
 def rule_match(text: str, allergen: str) -> bool:
@@ -476,32 +447,24 @@ def rule_match(text: str, allergen: str) -> bool:
     # prevents \b from matching across the word boundary.
     text_lower = text_lower.replace('_', ' ')
 
-    # Step 1: Check core BIG8 keyword match
-    # Find all matching keywords for this allergen
-    match = COMPILED_RULES[allergen].search(text_lower)
-    if not match:
-        return False
+    for match in COMPILED_RULES[allergen].finditer(text_lower):
+        matched_keyword = match.group(0).lower()
 
-    matched_keyword = match.group(0)
+        if not _context_aware_match(
+            text_lower, allergen, matched_keyword, match.start(), match.end()
+        ):
+            continue
 
-    # Step 2: Apply context disambiguation for ambiguous terms
-    if not _context_aware_match(text_lower, allergen, matched_keyword.lower()):
-        return False
+        if _check_negation(
+            text_lower,
+            match.start(),
+            match.end(),
+        ):
+            continue
 
-    # Step 3: Check negation — if negated, return False
-    # Pass the matched keyword so negation patterns like "free from gluten"
-    # are detected even though "gluten" differs from the canonical stem "wheat"
-    if _check_negation(text_lower, allergen, matched_keyword=matched_keyword):
-        return False
+        return True
 
-    # Step 4: Check if this is a "may contain" statement (not a declaration of presence)
-    # We only check this for the broader match (not per-stem)
-    if re.search(r'\bmay contain\b.*' + re.escape(matched_keyword), text_lower, re.IGNORECASE):
-        # "May contain" means traces, not intentional ingredient — still counts as present
-        # per food labeling rules. Return True.
-        pass
-
-    return True
+    return False
 
 def detect_allergens_rule_based(text: str) -> List[str]:
     """

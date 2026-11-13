@@ -1,6 +1,7 @@
 # Utility Modules — Food Label Transparency
 
-Centralized functionality powering allergen detection, data processing, model training, and evaluation across the notebook pipeline. Refactored to reduce code duplication by ~90% across notebooks 03–05.
+Shared functionality for allergen detection, data processing, model training,
+evaluation, and deployment across the notebook pipeline.
 
 ## Module Structure
 
@@ -10,8 +11,8 @@ Centralized functionality powering allergen detection, data processing, model tr
 | Data Management | `utils/data_utils.py` | CSV loading, multi-label stratified splitting, data augmentation, metadata persistence |
 | Model Utilities | `utils/model_utils.py` | Model/tokenizer loading, class weights, ML + hybrid prediction, threshold optimization |
 | Evaluation | `utils/evaluation.py` | Classification reports, per-class metrics, confusion matrices, error analysis, Jaccard similarity |
-| Semantic Classification | `utils/semantic_utils.py` | Ingredient-to-category mapping (41 categories), ingredient parsing, binary matrix conversion |
-| OCR | `utils/ocr_utils.py` | Image preprocessing + EasyOCR text extraction for label images |
+| Semantic Classification | `utils/semantic_utils.py` | Ingredient-to-category mapping (40 categories), ingredient parsing, binary matrix conversion |
+| OCR | `utils/ocr_utils.py` | Image preprocessing and EasyOCR text extraction for label images |
 | Deployment | `utils/deployment_utils.py` | PyTorch → ONNX export, output validation, latency benchmarking, deployment reports |
 
 ## Quick Start
@@ -57,4 +58,5 @@ python -m pytest tests/
 python -m pytest tests/test_text_processing_tree_nuts.py -v
 ```
 
-See `tests/` for test suites covering keyword matching, exemptions, negation handling, and Filipino variants.
+See [`tests/`](../../tests/) for test suites covering keyword matching,
+exemptions, negation handling, and Filipino variants.

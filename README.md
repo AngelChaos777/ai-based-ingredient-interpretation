@@ -1,6 +1,7 @@
 # 🏷️ Food Label Transparency for Filipino Consumers
 
-**AI-based ingredient interpretation to detect allergens in food labels**  
+**AI-based ingredient interpretation to detect allergens in food labels**
+
 A comprehensive notebook pipeline that extracts, processes, and analyzes food ingredient data using OCR, rule-based methods, and a MobileBERT model for multi-label allergen classification.
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
@@ -33,25 +34,26 @@ This project aims to enhance food label transparency for Filipino consumers by a
 
 - **Optical Character Recognition (OCR)** to extract text from label images
 - **Rule-based parsing** to structure ingredient lists
-- **MobileBERT fine-tuning** for multi-label allergen classification
+- **MobileBERT fine-tuning** for multi-label ingredient and allergen classification
 - **Hybrid detection** merging ML predictions with rule-based patterns for high-confidence results
 
-The system targets the eight major allergens recognized by the FDA: Milk, Eggs, Peanuts, Tree Nuts, Soy, Wheat, Fish, and Shellfish.
+The allergen model targets eight classes: milk, eggs, peanuts, tree nuts, soy, wheat, fish, and shellfish.
 
-Data used in this project is sourced from OpenFoodFacts.
+The product data used in this project is sourced from Open Food Facts (OFF).
 
 ---
 
 ## Notebook Pipeline
 
 Each notebook represents a stage in the end-to-end workflow. Run them sequentially for best results.
-`00_pipeline_overview.ipynb` is a markdown-only map of the whole pipeline, its two deliverables,
-and the methodology guarantees (no augmentation leakage, validation-only model selection,
-single held-out test evaluation, honest hybrid reporting).
+`00_pipeline_overview.ipynb` is a markdown-only map of the whole pipeline and its two deliverables.
+Earlier counter-example augmentation included terms chosen after inspecting held-out test false
+positives, so metrics from those runs are exploratory; confirmatory evaluation requires retraining
+and a fresh untouched test set.
 
 ### 1. Data Extraction (`01_extraction.ipynb`)
 
-- Extracts ingredient text from food label images using **pytesseract** (OCR)
+- Extracts ingredient text from food label images using **EasyOCR**
 - Parses raw OCR output into structured ingredient entries
 - Saves intermediates to **DuckDB** and **CSV** for downstream use
 
@@ -109,13 +111,13 @@ single held-out test evaluation, honest hybrid reporting).
 ### 8. Allergen Model Training (`08_allergen_training.ipynb`)
 
 - Trains candidate MobileBERT classifiers: weighted **BCE**, **Focal loss**, **ASL**, and a 5-seed **ensemble**
-- **Selects the winner on the validation set** — the test set is never touched here
+- Selects the winner on the validation set
 - Saves the winner as the canonical `mobilebert_allergen_final` model
 
 ### 9. Allergen Evaluation (`09_allergen_evaluation.ipynb`)
 
 - Tunes per-class probability thresholds **on validation** with a recall-first objective
-- Runs the **single, final held-out test evaluation**
+- Reports historical held-out test metrics as exploratory; use a fresh untouched test set for confirmatory results
 - Compares **ML predictions vs official OFF tags** for a real-world signal
 - Includes the **non-circular hard-case check** against 75 hand-labeled products
 - Quantifies seed variance across the ensemble
@@ -156,12 +158,12 @@ single held-out test evaluation, honest hybrid reporting).
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/food-label-transparency.git
-cd food-label-transparency
+git clone https://github.com/AngelChaos777/ai-based-ingredient-interpretation.git
+cd ai-based-ingredient-interpretation
 
 # Create a virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -169,9 +171,11 @@ pip install -r requirements.txt
 
 ### Running the Notebooks
 
-Launch Jupyter Lab/Notebook and execute the notebooks in order:
+The notebooks use paths relative to the `notebooks/` directory. Start Jupyter
+from there and run the notebooks in order:
 
 ```bash
+cd notebooks
 jupyter lab   # or jupyter notebook
 ```
 
@@ -235,6 +239,10 @@ flowchart TD
 | `configs/` | JSON configuration (allergen map, semantic categories, model thresholds) |
 | `scripts/` | Pipeline orchestration and validation scripts |
 
+Datasets, trained checkpoints, ONNX exports, and generated outputs are not
+stored in Git. Download or generate these artifacts by following the notebook
+pipeline.
+
 ### Allergen Classes
 
 1. Milk
@@ -260,21 +268,30 @@ To use custom thresholds in inference, load them and pass to the prediction func
 ```python
 import json
 import numpy as np
+from utils.model_utils import hybrid_predict
 
-# Load thresholds
 with open('../models/hybrid_config.json', 'r') as f:
     config = json.load(f)
-thresholds = np.array(config["ml_thresholds"])
 
-# Use in prediction
-preds, probs = predict_ml(texts, thresholds=thresholds)
+preds, probs = hybrid_predict(
+    texts, model, tokenizer, device,
+    thresholds=np.array(config["ml_thresholds"]),
+    rule_conf_threshold=config.get("rule_conf_threshold", 0.2),
+    mode=config.get("mode", "hard_override"),
+    per_allergen_modes=config.get("per_allergen_modes"),
+)
 ```
 
 ---
 
 ## Model Performance
 
-### Allergen Model — Held-Out Test (Notebooks 08–09)
+### Allergen Model — Historical Test Metrics (Exploratory)
+
+> **Exploratory historical results only:** a previous training run added
+> counter-example terms selected after inspecting held-out test false positives.
+> The metrics below are therefore not confirmatory. Retrain and evaluate on a
+> fresh, untouched test set before making generalization claims.
 
 | Metric | Value |
 | ------ | ----- |
@@ -314,7 +331,7 @@ The train/test F1s above compare predictions against rule-generated labels. To b
 - **Training Time:** ~25 min per run on a single RTX 3060 (6 GB VRAM)
 - **Inference Latency:** ~12 ms per ingredient on CPU (ONNX Runtime)
 
-*Thresholds are tuned on validation only (recall-first, Fβ = 2.0, `min_recall` = 0.9); the held-out test set is evaluated once. Full per-metric detail lives in [docs/model_cards.md](docs/model_cards.md).*
+*Thresholds are selected on validation data using a recall-first objective (Fβ = 2.0, `min_recall` = 0.9). Because historical training augmentation used test feedback, these test metrics are exploratory. Full details are in [docs/model_cards.md](docs/model_cards.md).*
 
 ---
 
@@ -337,15 +354,20 @@ The train/test F1s above compare predictions against rule-generated labels. To b
 - **`models/exported/allergen_model/allergen_model.onnx`** – ONNX-exported model for mobile deployment
 - **`models/hybrid_config.json`** – Production hybrid thresholds and per-allergen modes
 - **`configs/model_thresholds.json`** – Legacy thresholds from early experiments (stale — use `models/hybrid_config.json`)
-- **`configs/allergen_map.json`** – Allergen keyword mappings with Filipino variants
+- **`configs/allergen_map.json`** – Open Food Facts allergen-tag mapping to the project's eight classes
+
+---
+
+## Documentation
+
+- [Model cards](docs/model_cards.md)
+- [ONNX API reference](docs/onnx_api.md)
+- [Threshold tuning guide](docs/threshold_tuning.md)
+- [Configuration guide](configs/README.md)
+- [Utility module guide](notebooks/utils/README.md)
 
 ---
 
 ## License
 
 This project is licensed under the MIT License.
-
----
-
-*Last updated: August 5, 2026*  
-*Version: 2.4.0*

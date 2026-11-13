@@ -3,6 +3,13 @@
 > **Food Label Transparency for Filipino Consumers — AI-Based Ingredient Interpretation**
 > A thesis project that detects FDA Big-8 allergens from Philippine food product labels using OCR, rule-based parsing, and fine-tuned MobileBERT models in a hybrid detection pipeline. Also performs semantic ingredient classification (40 categories after merging herb→spice, smoked→cured, prebiotic→fiber) as a supporting deliverable.
 
+> **Maintenance note:** This is an internal working reference, not the public
+> documentation or a source of current model artifacts. Historical allergen
+> counter-example augmentation used terms selected after inspecting held-out
+> test false positives. Metrics and thresholds from those runs are exploratory;
+> confirmatory evaluation requires retraining and a fresh, untouched test set.
+> Check the notebooks and utility modules for current implementation details.
+
 ---
 
 ## 1. What This Project Does
@@ -80,7 +87,7 @@ The system is designed for **eventual mobile deployment** on Android (ONNX Runti
                                      │
                     ┌────────────────▼────────────────────────┐
                     │       09_allergen_evaluation.ipynb       │
-                    │  Val thresholds → single held-out test   │
+                    │  Val thresholds → exploratory test report │
                     │  ML vs official-tag evaluation           │
                     └────────────────┬────────────────────────┘
                                      │
@@ -359,7 +366,11 @@ Notebook 10's `predict_ml()` previously ran all test samples as a single batch, 
 
 **Orphan kernel issue:** 6+ stale `ipykernel_launcher` processes can persist between runs, each holding GPU memory. Restarting the Jupyter kernel or killing orphan PIDs frees the memory. The training/evaluation notebooks now call `torch.cuda.empty_cache()` at startup to mitigate fragmentation.
 
-### Performance (test set) — Verified End-to-End (Phase 0 final)
+### Historical Performance (test set) — Exploratory
+
+> These held-out test metrics are not confirmatory: counter-example augmentation
+> used terms selected after inspecting test false positives. Retrain and
+> evaluate on a fresh, untouched test set before making generalization claims.
 
 Results from the complete pipeline after Phase 0 fix (reverted to original nn.Linear — see §13): Allergen model trained with original `MobileBertForSequenceClassification` classifier head, gradient clipping (`max_norm=1.0`), batch_size=8, max_length=540 (computed from data, not capped at 221).
 

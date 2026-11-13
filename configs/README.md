@@ -1,42 +1,30 @@
-# Configuration Files
+# Configuration
 
-This directory contains configuration files for the food label transparency project.
+This directory contains the version-controlled configuration used by the
+notebook pipeline.
 
-## Files
+| File | Purpose |
+| --- | --- |
+| [`allergen_map.json`](allergen_map.json) | Maps Open Food Facts allergen tags to the project's eight allergen classes. |
+| [`semantic_categories.json`](semantic_categories.json) | Defines the 40 semantic ingredient categories and their examples. |
+| [`model_thresholds.json`](model_thresholds.json) | Historical thresholds from early experiments; retained for reference and not used for production inference. |
 
-### `allergen_map.json`
-Mapping from OpenFoodFacts allergen tags to internal allergen names used in the model.
-- Used in the labeling notebook (03_labeling_enhanced.ipynb) to convert official tags to our 8 allergen classes
-- Contains both the mapping dictionary and the list of target allergens
+## Production thresholds
 
-### `model_thresholds.json`
-Optimal probability thresholds per allergen class from initial experiments.
-- Format: {"allergen_name": threshold_value, ...}
-- These thresholds were obtained from early validation experiments
-- Note: For production/hybrid system, use the thresholds in `../models/hybrid_config.json` instead
+Notebook 09 writes the selected allergen thresholds and hybrid settings to
+`models/hybrid_config.json`. This file is a generated model artifact and is
+excluded from Git along with model checkpoints. Regenerate it by running the
+evaluation notebook; do not use the historical `model_thresholds.json` values
+as a substitute.
 
-## Usage
-
-To use these configurations in your code:
+## Loading the allergen map
 
 ```python
 import json
-from pathlib import Path
 
-# Load allergen map
-with open("../configs/allergen_map.json") as f:
-    allergen_config = json.load(f)
-allergen_mapping = allergen_config["mapping"]
-target_allergens = allergen_config["allergens"]
+with open("../configs/allergen_map.json", encoding="utf-8") as file:
+    config = json.load(file)
 
-# Load thresholds (for reference only - see hybrid_config.json for production thresholds)
-with open("../configs/model_thresholds.json") as f:
-    model_thresholds = json.load(f)
-
-# For production use, load the hybrid config instead:
-with open("../models/hybrid_config.json") as f:
-    hybrid_config = json.load(f)
-ml_thresholds = hybrid_config["ml_thresholds"]  # Array in same order as target_allergens
-rule_conf_threshold = hybrid_config["rule_conf_threshold"]
-mode = hybrid_config["mode"]
+allergen_mapping = config["mapping"]
+target_allergens = config["allergens"]
 ```
