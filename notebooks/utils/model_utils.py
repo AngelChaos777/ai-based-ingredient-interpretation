@@ -145,6 +145,87 @@ def _fbeta_score(y_true: np.ndarray, y_pred: np.ndarray, beta: float = 1.0) -> f
     return (1 + beta ** 2) * precision * recall / denom if denom > 0 else 0.0
 
 
+def find_best_global_sample_threshold(
+    probs: np.ndarray,
+    labels: np.ndarray,
+    step: float = 0.01,
+) -> Tuple[float, float]:
+    """Find one probability threshold that maximizes per-sample F1."""
+    probs = np.asarray(probs)
+    labels = np.asarray(labels)
+    if probs.ndim != 2 or probs.shape != labels.shape:
+        raise ValueError("probs and labels must be matching 2D arrays")
+    if not 0 < step < 1:
+        raise ValueError("step must be between 0 and 1")
+
+    thresholds = np.arange(step, 1.0, step)
+    scores = np.array([
+        f1_score(labels, (probs >= threshold).astype(int), average="samples", zero_division=0)
+        for threshold in thresholds
+    ])
+    best_score = float(scores.max())
+    tied = np.flatnonzero(np.isclose(scores, best_score))
+    best_index = min(tied, key=lambda i: abs(thresholds[i] - 0.5))
+    return float(thresholds[best_index]), best_score
+
+
+def cross_validate_sample_thresholds(
+    probs: np.ndarray,
+    labels: np.ndarray,
+    n_splits: int = 5,
+    random_state: int = 42,
+) -> Dict[str, Any]:
+    """Compare fixed 0.5 and fold-tuned global thresholds on stratified CV folds."""
+    from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
+
+    probs = np.asarray(probs)
+    labels = np.asarray(labels)
+    if probs.ndim != 2 or probs.shape != labels.shape:
+        raise ValueError("probs and labels must be matching 2D arrays")
+    if n_splits < 2 or len(labels) < n_splits:
+        raise ValueError("n_splits must be at least 2 and no greater than the sample count")
+
+    fixed_scores = []
+    tuned_scores = []
+    splitter = MultilabelStratifiedKFold(
+        n_splits=n_splits,
+        shuffle=True,
+        random_state=random_state,
+    )
+    for fit_indices, holdout_indices in splitter.split(np.zeros(len(labels)), labels):
+        threshold, _ = find_best_global_sample_threshold(
+            probs[fit_indices],
+            labels[fit_indices],
+        )
+        holdout_probs = probs[holdout_indices]
+        holdout_labels = labels[holdout_indices]
+        fixed_scores.append(
+            f1_score(
+                holdout_labels,
+                (holdout_probs >= 0.5).astype(int),
+                average="samples",
+                zero_division=0,
+            )
+        )
+        tuned_scores.append(
+            f1_score(
+                holdout_labels,
+                (holdout_probs >= threshold).astype(int),
+                average="samples",
+                zero_division=0,
+            )
+        )
+
+    return {
+        "fixed_scores": [float(score) for score in fixed_scores],
+        "tuned_scores": [float(score) for score in tuned_scores],
+        "fixed_mean": float(np.mean(fixed_scores)),
+        "tuned_mean": float(np.mean(tuned_scores)),
+        "fixed_std": float(np.std(fixed_scores, ddof=1)),
+        "tuned_std": float(np.std(tuned_scores, ddof=1)),
+    }
+
+
 def find_best_thresholds(probs: np.ndarray, labels: np.ndarray, step: float = 0.01,
                          beta: float = 2.0, min_recall: float = 0.9) -> np.ndarray:
     """

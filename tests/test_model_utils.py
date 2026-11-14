@@ -199,6 +199,41 @@ class TestFindBestThresholds:
         assert len(thresholds) == 1
 
 
+class TestSampleThresholdSelection:
+    def test_global_threshold_optimizes_samples_f1(self):
+        labels = np.array([[1, 0], [1, 1], [0, 0], [0, 1]])
+        probs = np.array([[0.4, 0.1], [0.3, 0.4], [0.2, 0.1], [0.1, 0.35]])
+
+        threshold, score = mu.find_best_global_sample_threshold(probs, labels, step=0.01)
+
+        assert threshold == pytest.approx(0.3)
+        assert score == pytest.approx(0.75)
+
+    def test_cross_validation_compares_fixed_and_tuned_thresholds(self):
+        labels = np.array([
+            [1, 0], [1, 1], [0, 0], [0, 1],
+            [1, 0], [1, 1], [0, 0], [0, 1],
+        ])
+        probs = np.array([
+            [0.7, 0.1], [0.6, 0.7], [0.2, 0.2], [0.1, 0.6],
+            [0.7, 0.1], [0.6, 0.7], [0.2, 0.2], [0.1, 0.6],
+        ])
+
+        result = mu.cross_validate_sample_thresholds(probs, labels, n_splits=2)
+
+        assert len(result["fixed_scores"]) == 2
+        assert len(result["tuned_scores"]) == 2
+        assert 0 <= result["fixed_mean"] <= 1
+        assert 0 <= result["tuned_mean"] <= 1
+
+    def test_mismatched_shapes_raise(self):
+        with pytest.raises(ValueError, match="matching 2D arrays"):
+            mu.find_best_global_sample_threshold(
+                np.array([[0.8, 0.2]]),
+                np.array([[1]]),
+            )
+
+
 # ──────────────────────────────────────────────
 # predict_ml — basic validation
 # ──────────────────────────────────────────────
